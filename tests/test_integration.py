@@ -233,9 +233,7 @@ def test_fixture_file_has_20_observations():
 
 def test_observe_hook_produces_valid_jsonl(tmp_path):
     """Feed sample PostToolUse events through observe.sh and verify JSONL output."""
-    if not shutil.which("jq"):
-        import pytest
-        pytest.skip("jq not installed")
+    # observe.sh is now pure bash -- no jq dependency
 
     # observe.sh writes to .acumen/observations/ relative to cwd
     hook_events = [
@@ -366,8 +364,8 @@ def test_insight_to_proposal_to_rule(tmp_path):
     assert "python3" in path.read_text()
 
 
-def test_insight_to_proposal_to_memory(tmp_path):
-    """Full pipeline: non-correction insight -> memory file."""
+def test_insight_to_proposal_to_rule(tmp_path):
+    """Full pipeline: non-correction insight -> rule file (all insights become rules)."""
     insight = {
         "description": "Read tool is heavily used without errors",
         "category": "best_practice",
@@ -375,13 +373,13 @@ def test_insight_to_proposal_to_memory(tmp_path):
         "tools": ["Read"],
     }
     proposals = generate_proposals([insight])
-    assert proposals[0]["target"] == "memory"
+    assert proposals[0]["target"] == "rule"
 
     proposals[0]["status"] = "approved"
     path = apply_proposal(tmp_path, proposals[0])
 
     assert path.exists()
-    assert "acumen" in str(path.parent)
+    assert path.name.startswith("acumen-")
     assert "Read tool" in path.read_text()
 
 
@@ -416,25 +414,21 @@ def test_full_pipeline_observe_to_apply(tmp_path):
     proposals = generate_proposals(insights)
     assert len(proposals) == 2
     assert proposals[0]["target"] == "rule"      # correction
-    assert proposals[1]["target"] == "memory"    # non-correction
+    assert proposals[1]["target"] == "rule"      # all insights become rules
 
     # Approve and apply both
     for p in proposals:
         p["status"] = "approved"
         apply_proposal(tmp_path, p)
 
-    # Verify files
+    # Verify files -- all go to rules
     rules = list((tmp_path / ".claude" / "rules").glob("acumen-*.md"))
-    mems = list((tmp_path / ".claude" / "memory" / "acumen").glob("*.md"))
-    assert len(rules) == 1
-    assert len(mems) == 1
+    assert len(rules) == 2
 
 
 def test_pipeline_observe_hook_to_format(tmp_path):
     """Full pipeline through observe.sh: hook -> store.read -> score -> format."""
-    if not shutil.which("jq"):
-        import pytest
-        pytest.skip("jq not installed")
+    # observe.sh is now pure bash -- no jq dependency
 
     # Feed events through the actual hook
     events = [

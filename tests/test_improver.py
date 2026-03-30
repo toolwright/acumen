@@ -35,13 +35,13 @@ def test_generate_proposals_correction_produces_rule():
     assert "created" in p
 
 
-def test_generate_proposals_non_correction_produces_memory():
-    """Non-correction insights generate a memory proposal."""
+def test_generate_proposals_non_correction_produces_rule():
+    """All insights generate rule proposals (no memory target)."""
     insights = [_insight("Bash tool used heavily for file listing", category="best_practice")]
     proposals = generate_proposals(insights)
 
     assert len(proposals) == 1
-    assert proposals[0]["target"] == "memory"
+    assert proposals[0]["target"] == "rule"
 
 
 def test_generate_proposals_multiple():
@@ -54,8 +54,8 @@ def test_generate_proposals_multiple():
     proposals = generate_proposals(insights)
     assert len(proposals) == 3
     assert proposals[0]["target"] == "rule"
-    assert proposals[1]["target"] == "memory"
-    assert proposals[2]["target"] == "memory"
+    assert proposals[1]["target"] == "rule"
+    assert proposals[2]["target"] == "rule"
 
 
 def test_generate_proposals_empty():
@@ -122,20 +122,20 @@ def test_apply_rule_proposal(tmp_path):
     assert "python3" in content
 
 
-def test_apply_memory_proposal(tmp_path):
-    """Approved memory proposal writes .claude/memory/acumen/*.md."""
+def test_apply_non_correction_proposal_writes_rule(tmp_path):
+    """All proposals write to .claude/rules/acumen-*.md regardless of target."""
     proposal = {
         "description": "Bash tool used heavily for file listing",
-        "target": "memory",
+        "target": "rule",
         "status": "approved",
         "rule_text": "Bash is the most commonly used tool in this project.",
     }
     apply_proposal(tmp_path, proposal)
 
-    mem_dir = tmp_path / ".claude" / "memory" / "acumen"
-    mem_files = list(mem_dir.glob("*.md"))
-    assert len(mem_files) == 1
-    content = mem_files[0].read_text()
+    rules_dir = tmp_path / ".claude" / "rules"
+    rule_files = list(rules_dir.glob("acumen-*.md"))
+    assert len(rule_files) == 1
+    content = rule_files[0].read_text()
     assert "Bash" in content
 
 
@@ -182,19 +182,21 @@ def test_apply_rule_namespacing(tmp_path):
         assert f.name.startswith("acumen-"), f"Rule file {f.name} not namespaced"
 
 
-def test_apply_memory_namespacing(tmp_path):
-    """All memory files are in acumen/ subdirectory."""
+def test_apply_legacy_memory_target_writes_to_rules(tmp_path):
+    """Legacy proposals with target='memory' still write to rules directory."""
     proposal = {
-        "description": "Test memory",
+        "description": "Test legacy memory",
         "target": "memory",
         "status": "approved",
-        "rule_text": "Test memory content.",
+        "rule_text": "Test legacy memory content.",
     }
     apply_proposal(tmp_path, proposal)
 
+    # Should write to rules, not memory
+    rules_dir = tmp_path / ".claude" / "rules"
+    assert len(list(rules_dir.glob("acumen-*.md"))) == 1
     mem_dir = tmp_path / ".claude" / "memory" / "acumen"
-    assert mem_dir.is_dir()
-    assert len(list(mem_dir.glob("*.md"))) == 1
+    assert not mem_dir.exists()
 
 
 def test_apply_multiple_proposals_unique_files(tmp_path):
@@ -215,10 +217,10 @@ def test_apply_multiple_proposals_unique_files(tmp_path):
 
 
 def test_auto_apply_sets_status_and_writes_files(tmp_path):
-    """Auto-apply sets status to auto-applied and creates files."""
+    """Auto-apply sets status to auto-applied and creates rule files."""
     proposals = [
         {"description": "Use python3", "target": "rule", "status": "proposed", "rule_text": "Use python3."},
-        {"description": "Bash is common", "target": "memory", "status": "proposed", "rule_text": "Bash is common."},
+        {"description": "Bash is common", "target": "rule", "status": "proposed", "rule_text": "Bash is common."},
     ]
     applied = auto_apply_proposals(tmp_path, proposals)
 
@@ -226,7 +228,7 @@ def test_auto_apply_sets_status_and_writes_files(tmp_path):
     assert proposals[0]["status"] == "auto-applied"
     assert proposals[1]["status"] == "auto-applied"
     assert (tmp_path / ".claude" / "rules").exists()
-    assert (tmp_path / ".claude" / "memory" / "acumen").exists()
+    assert len(list((tmp_path / ".claude" / "rules").glob("acumen-*.md"))) == 2
 
 
 def test_auto_apply_skips_non_proposed(tmp_path):

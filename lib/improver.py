@@ -30,12 +30,11 @@ def generate_proposals(insights: list[dict], existing_rule_slugs: set[str] | Non
         slug = _slugify(desc)
         if slug in existing_rule_slugs:
             continue  # rule already applied, skip
-        is_correction = ins.get("category") == "correction"
         rule_text = f"# Acumen insight\n\n{desc}"
         p = {
             "description": desc,
             "rule_text": rule_text,
-            "target": "rule" if is_correction else "memory",
+            "target": "rule",
             "status": "proposed",
             "created": now,
             "tools": ins.get("tools", []),
@@ -93,16 +92,10 @@ def apply_proposal(project_root: Path, proposal: dict) -> Path:
     slug = _slugify(proposal["description"])
     rule_text = proposal.get("rule_text", proposal["description"])
 
-    if proposal["target"] == "rule":
-        out_dir = project_root / ".claude" / "rules"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"acumen-{slug}.md"
-        out_path.write_text(rule_text + "\n")
-    else:
-        out_dir = project_root / ".claude" / "memory" / "acumen"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{slug}.md"
-        out_path.write_text(rule_text + "\n")
+    out_dir = project_root / ".claude" / "rules"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"acumen-{slug}.md"
+    out_path.write_text(rule_text + "\n")
 
     return out_path
 

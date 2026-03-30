@@ -192,20 +192,22 @@ def test_multiple_observations_append(tmp_path):
     assert [o["tool_name"] for o in obs] == ["Tool0", "Tool1", "Tool2"]
 
 
-# -- jq fallback --
+# -- Zero external deps --
 
 
-def test_no_jq_exits_cleanly(tmp_path):
-    """Hook exits cleanly (0) when jq is not available."""
+def test_works_without_jq(tmp_path):
+    """Hook works with pure bash, no jq required."""
     event = {"tool_name": "Bash", "session_id": "s9", "tool_input": {}, "tool_response": {"exit_code": 0}}
-    # Use absolute bash path, set PATH to dir without jq
+    # Set PATH to only /usr/bin and /bin (no jq), proving we don't need it
     result = subprocess.run(
         ["/bin/bash", str(HOOK)],
         input=json.dumps(event),
         capture_output=True,
         text=True,
         cwd=tmp_path,
-        env={**os.environ, "PATH": "/nonexistent"},
+        env={**os.environ, "PATH": "/usr/bin:/bin"},
     )
     assert result.returncode == 0
-    assert read_observations(tmp_path) == []
+    obs = read_observations(tmp_path)
+    assert len(obs) == 1
+    assert obs[0]["tool_name"] == "Bash"
