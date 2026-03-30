@@ -66,6 +66,32 @@ def test_status_top_insights_limited_to_5():
     assert "Insight 5" not in result
 
 
+def test_format_status_shows_eval_tier(tmp_path):
+    """format_status shows eval tier when eval-config.json exists."""
+    import json
+    acumen_dir = tmp_path / ".acumen"
+    acumen_dir.mkdir()
+    (acumen_dir / "eval-config.json").write_text(json.dumps({
+        "tier": 1, "confidence": "HIGH", "test_cmd": "python3 -m pytest",
+        "lint_cmd": None, "test_latency_ms": 800, "fast_for_stop_gate": True,
+    }))
+    output = format_status([], [], project_root=tmp_path)
+    assert "HIGH" in output or "Test suite" in output
+
+
+def test_format_status_tier3_shows_suggestion(tmp_path):
+    """Tier 3 config shows low-confidence note in status output."""
+    import json
+    acumen_dir = tmp_path / ".acumen"
+    acumen_dir.mkdir()
+    (acumen_dir / "eval-config.json").write_text(json.dumps({
+        "tier": 3, "confidence": "LOW", "test_cmd": None,
+        "lint_cmd": None, "test_latency_ms": 0, "fast_for_stop_gate": False,
+    }))
+    output = format_status([], [], project_root=tmp_path)
+    assert "test" in output.lower() or "LOW" in output
+
+
 # --- format_insights ---
 
 

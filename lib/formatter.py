@@ -1,42 +1,65 @@
 """Format observation/insight data for CLI display. Stdlib only."""
 
 from collections import Counter
+from pathlib import Path
 from typing import Optional
 
 
-def format_status(observations: list[dict], insights: list[dict], last_reflection: Optional[str] = None) -> str:
+def format_status(
+    observations: list[dict],
+    insights: list[dict],
+    last_reflection: Optional[str] = None,
+    project_root: Optional[Path] = None,
+) -> str:
     """Format status summary for /acumen-status. Returns plain text."""
+    lines = ["ACUMEN STATUS"]
+
     if not observations and not insights:
-        return "No observation data yet. Acumen collects data as you work -- check back after a few sessions."
+        lines.append("  No observation data yet. Acumen collects data as you work.")
+    else:
+        sessions = len({o.get("session_id", "") for o in observations})
+        total_obs = len(observations)
+        errors = sum(1 for o in observations if o.get("outcome") in ("error", "failure"))
+        error_rate = f"{errors / total_obs * 100:.0f}%" if total_obs else "0%"
 
-    sessions = len({o.get("session_id", "") for o in observations})
-    total_obs = len(observations)
-    errors = sum(1 for o in observations if o.get("outcome") in ("error", "failure"))
-    error_rate = f"{errors / total_obs * 100:.0f}%" if total_obs else "0%"
+        day_counts: Counter[str] = Counter()
+        for o in observations:
+            ts = o.get("timestamp", "")
+            day_counts[ts[:10]] += 1
+        daily = " | ".join(f"{d}: {c}" for d, c in sorted(day_counts.items())[-7:])
 
-    # Observations per day (last 7 days)
-    day_counts: Counter[str] = Counter()
-    for o in observations:
-        ts = o.get("timestamp", "")
-        day_counts[ts[:10]] += 1
-    daily = " | ".join(f"{d}: {c}" for d, c in sorted(day_counts.items())[-7:])
+        lines += [
+            f"  Sessions observed: {sessions}",
+            f"  Total observations: {total_obs}",
+            f"  Error rate: {error_rate}",
+            f"  Active insights: {len(insights)}",
+        ]
+        if last_reflection:
+            lines.append(f"  Last reflection: {last_reflection}")
+        if daily:
+            lines.append(f"  Daily activity: {daily}")
+        if insights:
+            lines.append("  Top insights:")
+            for ins in insights[:5]:
+                score = ins.get("combined", 0)
+                lines.append(f"    - [{score:.2f}] {ins['description']}")
 
-    lines = [
-        "ACUMEN STATUS",
-        f"  Sessions observed: {sessions}",
-        f"  Total observations: {total_obs}",
-        f"  Error rate: {error_rate}",
-        f"  Active insights: {len(insights)}",
-    ]
-    if last_reflection:
-        lines.append(f"  Last reflection: {last_reflection}")
-    if daily:
-        lines.append(f"  Daily activity: {daily}")
-    if insights:
-        lines.append("  Top insights:")
-        for ins in insights[:5]:
-            score = ins.get("combined", 0)
-            lines.append(f"    - [{score:.2f}] {ins['description']}")
+    if project_root is not None:
+        try:
+            try:
+                from evaluator import load_eval_config
+            except ImportError:
+                from lib.evaluator import load_eval_config
+            config = load_eval_config(project_root)
+            if config:
+                tier_names = {1: "Test suite", 2: "Lint/typecheck", 3: "Error rate"}
+                label = tier_names.get(config.tier, "Unknown")
+                lines.append(f"\nEval signal: {label} (confidence: {config.confidence})")
+                if config.tier == 3:
+                    lines.append("  Tip: add tests for stronger improvement evidence.")
+        except Exception:
+            pass
+
     return "\n".join(lines)
 
 
