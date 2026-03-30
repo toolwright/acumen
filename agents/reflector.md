@@ -22,6 +22,29 @@ Fields: `tool_name`, `session_id`, `timestamp`, `outcome` ("success" or "error")
 
 Also read existing insights from `.acumen/insights.json` (may not exist yet).
 
+## Attribution (read before analysis)
+
+Before generating insights, exclude sessions that should not feed learning:
+
+1. Read `.acumen/stop-failures.jsonl` (if it exists). Extract all `session_id` values. Skip all observations from those session IDs — they ended with API/tool failures unrelated to agent behavior.
+
+2. For each error pattern detected, classify before generating an insight:
+
+**Generate an insight** (agent-attributable):
+- Agent ran wrong command syntax that a correct agent would not
+- Agent skipped a required step in a procedure
+
+**Do NOT generate an insight — add a BLOCKER note instead** (environment-attributable):
+- Error message contains "command not found", "No such file or directory", exit code 127 → `env_missing`
+- Error message contains "Permission denied", "EACCES" → `env_permission`
+- Error message contains connection errors, "ECONNREFUSED", network timeouts → `env_external`
+- Error message contains version mismatch language → `env_version`
+
+**When uncertain, skip the insight entirely.** Do not guess.
+
+Format environment blockers at the end of your output:
+`[BLOCKER] env_missing: redis-server not found (N sessions affected)`
+
 ## Analysis Process
 
 1. Read all `.acumen/observations/*.jsonl` files from the last 7 days
@@ -154,20 +177,20 @@ import sys, json, tempfile
 sys.path.insert(0, 'lib')
 from pathlib import Path
 from store import resolve_scope_path, read_observations
-from improver import read_proposals, measure_effectiveness
+from improver import read_proposals, measure_effectiveness_with_confidence
 
 scope = resolve_scope_path('project')
 observations = read_observations(scope, days=30)
 proposals = read_proposals(scope)
-changed = measure_effectiveness(proposals, observations)
+changed = measure_effectiveness_with_confidence(proposals, observations, Path('.'))
 if changed:
     fd, tmp = tempfile.mkstemp(dir=scope, suffix='.tmp')
     with open(fd, 'w') as f:
         json.dump(proposals, f, indent=2)
     Path(tmp).replace(scope / 'proposals.json')
-    print(f'Effectiveness measured: {len(changed)} proposal(s) updated')
     for p in changed:
-        print(f'  [{p[\"effectiveness\"].upper()}] {p[\"description\"]}')
+        conf = p.get('eval_confidence', 'LOW')
+        print(f'  [{p[\"effectiveness\"].upper()} confidence:{conf}] {p[\"description\"]}')
 else:
     print('Effectiveness: no proposals with sufficient data yet (need 5+ observations before and after)')
 "
