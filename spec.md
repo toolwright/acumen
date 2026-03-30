@@ -148,6 +148,10 @@ acumen/                           # Plugin root
 > shell hook (no separate observer agent needed). Improvement is handled by
 > lib/improver.py + the /acumen-review command (no separate improver agent
 > needed). The observe.md and improve.md skills were unnecessary indirection.
+> **v0.1.1 simplifications:** All insights become rules (`.claude/rules/acumen-*.md`).
+> Memory entries dropped -- `.claude/memory/` is not read by Claude Code from
+> the project root. Shell hook rewritten in pure bash (no jq dependency).
+> Insight validation added. Proposal auto-expiry added (30-day TTL).
 
 ### 3.2 Data Model
 
@@ -311,17 +315,14 @@ Acumen uses Claude Code's native persistence systems with strict namespacing.
 ```
 Tiered persistence (research-grounded):
 
-  Tier 1: PATH-SCOPED RULES (.claude/rules/acumen-*.md)
-    - Corrections like "use python3 not python"
-    - Only loaded when editing relevant files (minimal budget)
+  Tier 1: RULES (.claude/rules/acumen-*.md) [DONE]
+    - ALL insights become rules (corrections, patterns, best practices)
+    - Loaded by Claude Code at session start or when path globs match
     - User can delete any rule file to override
+    - Note: .claude/memory/acumen/ was dropped -- Claude Code does not
+      read from project-local .claude/memory/ (only ~/.claude/projects/)
 
-  Tier 2: MEMORY (.claude/memory/acumen/*.md)
-    - General insights and preferences
-    - Separate budget from CLAUDE.md instructions
-    - All entries in acumen/ subdirectory (never touch user memories)
-
-  Tier 3: HOOKS (Phase 3, requires explicit user opt-in)
+  Tier 2: HOOKS (Phase 3, requires explicit user opt-in)
     - Deterministic enforcement for code-verifiable rules
     - Zero instruction budget cost
     - Acumen never writes to user's settings.json

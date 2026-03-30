@@ -2,86 +2,88 @@
 
 Items below are explicitly deferred but planned. Each includes the research that motivates it and enough context to implement without re-doing the research.
 
-**Shipped:** Phase 1 (observe + learn) and Phase 2 (improve + auto-apply + review/revert) are complete.
+**Shipped:**
+- Phase 1 (observe + learn) -- complete
+- Phase 2 (improve + auto-apply + review/revert + effectiveness measurement + global promotion) -- complete
+- Quality pass: all-rules architecture, jq-free observation, insight validation, proposal auto-expiry
 
 ---
 
-## v0.2 Priorities (immediate next steps, ~85 lines total)
+## v0.2 Priorities (immediate next steps)
 
-### TODO-001: Rule Dedup in Reflector
-**What:** Before generating a proposal, scan `.claude/rules/acumen-*.md` for an existing rule covering the same insight. Skip if already applied.
-**Why:** Dogfooding showed duplicate proposals: "use python3" was already applied as a rule but got proposed again on next reflection cycle. The reflector deduplicates against insights.json but not against applied rule files.
-**How:** In reflector.md, before calling `generate_proposals()`, list existing rule files and pass their contents as context so the LLM can skip already-covered insights.
-**Effort:** ~15 lines (reflector.md update + improver.py: list existing acumen-* rule slugs).
+### TODO-001: Plugin Registry Submission
+**What:** Submit Acumen to the Claude Code community plugin marketplace and set up self-hosted marketplace as fallback.
+**Why:** Current install (`claude --plugin-dir`) is dev-only. Registry submission enables `claude plugin install acumen` -- the plug-and-play experience.
+**How:** Enrich plugin.json with author/homepage/keywords fields. Submit via clau.de/plugin-directory-submission. Add marketplace.json for self-hosted distribution.
+**Effort:** S (~30 min).
 **Depends on:** Nothing.
 
-### TODO-002: Effectiveness Measurement
-**What:** Track whether applied rules actually reduced target errors. After N sessions (default: 5), check: did the target error recur? did overall error rate change? Verdict: effective / neutral / harmful (revert).
-**Why:** MiniMax M2.7's key innovation: analyze failure trajectories, compare before/after. AutoResearch: keep or discard based on single metric. Without measurement, we're applying rules blind.
-**Research:** MiniMax M2.7 (before/after failure trajectory comparison), AutoResearch (single metric validation), DGM (archive what works, discard what doesn't).
-**How:** In store.py: `measure_effectiveness(scope_path, rule_slug, sessions=5)` -- counts observations of the target error_type before and after the rule's applied_at timestamp. In improver.py: `verdict(before_count, after_count)` -- returns "effective" / "neutral" / "harmful".
-**Effort:** ~40 lines. Triggered by reflector after N sessions have passed since application.
-**Depends on:** Nothing (observations already have timestamps).
+### TODO-002: PreToolUse Denial Capture
+**What:** Add PreToolUse hook to capture tool denial signals (user blocked an Edit/Write). This is the strongest correction signal available without reading content.
+**Why:** ExpeL showed learning from success AND failure outperforms failure alone. Tool denials are high-signal: user actively stopped the agent. Currently we miss this class of learning events.
+**Research:** ExpeL (AAAI 2024), Reflexion (verbal self-reflection signals). Feasibility confirmed in findings.md section 8.
+**How:** Add PreToolUse to plugin.json hooks. In observe.sh, detect hook_event_name=PreToolUse and record {tool_name, outcome: "denied", error_type: "user_denied"}. ~15 lines.
+**Effort:** S (~30 min).
+**Depends on:** Nothing.
 
-### TODO-003: Global Scope Promotion
-**What:** Rules proven effective in 3+ projects can be promoted to `~/.claude/rules/acumen-*.md` (global Claude Code rules, picked up in every project). User confirms before global write.
-**Why:** SAGE (Ebbinghaus forgetting curve): some learnings are universal (e.g., "use python3 not python"), some are project-specific. ALMA: the memory design itself should evolve.
-**Research:** SAGE (memory optimization), ALMA (meta-learn memory designs).
-**How:** `promote_to_global(rule_path)` in improver.py copies the rule to `~/.claude/rules/`. Reflector marks a proposal with `scope: "global"` when effectiveness is proven and the same pattern has been observed in 3+ projects. Global promotions are REVIEW tier -- user confirms via `/acumen-review` before write.
-**Effort:** ~25 lines in improver.py + updated reflector.md guidance.
-**Depends on:** TODO-002 (effectiveness must be measured before promoting on evidence).
-**Confirmed:** Yes (user confirmed 2026-03-30).
+### TODO-003: Demo GIFs for README
+**What:** Create TUI Studio demo GIFs showing the key workflows: observation accumulation, reflection triggering, insight extraction, auto-apply, /acumen-review flow.
+**Why:** README needs visual proof of the product. Research shows 'show don't tell' is the biggest conversion driver for CLI tools.
+**Effort:** M (~1 hour).
+**Depends on:** Nothing.
 
-### TODO-004: Research -- User Correction Capture
-**What:** Research how to detect user corrections ("no, use X instead", "that's wrong, do Y") via Claude Code hooks, transcript analysis, or Stop hook. Do NOT implement yet -- research only.
-**Why:** ExpeL showed learning from success AND failure outperforms learning from failure alone. Currently Acumen only sees tool errors, not user-initiated corrections. This gap means we miss a class of high-signal learning events.
-**Research:** ExpeL (AAAI 2024) -- "failure AND success" insight extraction, Reflexion (verbal self-reflection signals).
-**Output:** Write findings to findings.md. Implement in a separate TODO once approach is clear.
-**Effort:** Research only. No code.
+### TODO-004: Reflector Insight Quality Improvement
+**What:** Tighten reflector.md to use validate_insight() and filter_valid_insights() from scorer.py. Ensure all LLM output passes validation before entering the pipeline.
+**Why:** LLM-generated insights can have missing fields, wrong types, or empty descriptions. validate_insight() now exists but isn't wired into the reflector flow yet.
+**Effort:** S (~15 min).
 **Depends on:** Nothing.
 
 ---
 
 ## Phase 3: EXPAND
 
-### TODO-005: Hook Generation
+### TODO-005: Skill Synthesis (SkillWeaver-inspired)
+**What:** Automatically create Claude Code skills from successful multi-step patterns. When the reflector detects a recurring successful workflow (e.g., "agent always runs lint then tests then commits"), synthesize a skill that codifies that workflow.
+**Why:** SkillWeaver (April 2025) showed 31.8% improvement on WebArena. Skills transfer from strong agents to weak agents (up to 54.3% improvement). This is the "self-expanding" part of the vision.
+**Research:** SkillWeaver, Voyager (Minecraft agent skill library).
+**Depends on:** Effectiveness measurement (only synthesize from PROVEN patterns).
+**Safety:** MANUAL tier -- skill creation always requires human review.
+
+### TODO-006: Hook Generation
 **What:** Generate shell hooks from insights (e.g., "always run lint after editing Python files").
-**Why:** Hooks are deterministic enforcement. Research and community consensus: hooks > instructions for mechanical rules.
+**Why:** Hooks are deterministic enforcement. Research and community consensus: hooks > instructions for mechanical rules. This upgrades Acumen from advisory to enforcement.
 **Research:** Anthropic best practices ("hooks are deterministic, instructions are advisory").
 **Depends on:** Effectiveness measurement (hooks need same evidence bar as global promotion).
 **Safety:** REVIEW tier -- hooks execute code, must be human-approved.
 
-### TODO-006: Skill Synthesis
-**What:** Automatically create Claude Code skills from successful multi-step patterns.
-**Why:** SkillWeaver (April 2025) showed 31.8% improvement on WebArena. Skills transfer from strong agents to weak agents (up to 54.3% improvement). Skills as reusable APIs is the unit of agent capability expansion.
-**Research:** SkillWeaver, Voyager (Minecraft agent skill library), AutoResearch (validated optimizations become permanent).
-**Depends on:** TODO-002 effectiveness measurement (only synthesize skills from PROVEN patterns).
-**Safety:** MANUAL tier -- skill creation always requires human review.
-
 ### TODO-007: Session Scope (Real-Time Adaptation)
-**What:** Within-conversation adaptation. If the user corrects the agent 3 times in similar ways, adapt immediately.
+**What:** Within-conversation adaptation. If the agent makes 3 similar errors in one session, adapt immediately rather than waiting for reflection.
 **Why:** Reflexion/LATS research: verbal self-reflection as the improvement signal. Real-time correction detection enables within-session learning.
 **Research:** Reflexion (verbal self-reflection), MiniMax M2.7 (loop detection safeguards).
-**Depends on:** TODO-004 research (correction detection must work first).
-**Design:** Session learnings are ephemeral but candidates for promotion to project scope.
+**Depends on:** TODO-002 (correction detection must work first).
+
+### TODO-008: Global Scope with Demotion
+**What:** Rules proven effective in 3+ projects auto-promoted to `~/.claude/rules/`. Rules that become ineffective get demoted back to project scope.
+**Why:** SAGE (Ebbinghaus forgetting curve): some learnings are universal, some are project-specific. Currently global promotion exists but demotion doesn't.
+**Research:** SAGE (memory optimization), ALMA (meta-learn memory designs).
+**Depends on:** TODO-005 effectiveness proven across projects.
 
 ---
 
 ## Phase 4: MULTI-AGENT SUPPORT
 
-### TODO-008: Agent-Agnostic Observation Format
-**What:** Standard observation format that works across Claude Code, Codex, Gemini, etc.
+### TODO-009: Agent-Agnostic Observation Format
+**What:** Standard observation format that works across Claude Code, Codex, Gemini CLI, etc.
 **Why:** Acumen's value increases when it works with any agent. Different agents have different hook mechanisms but observation data is universal.
 **Depends on:** Phase 1-3 proven on Claude Code.
-**Design:** Define a minimal observation schema. Each agent adapter translates native events to this schema.
 
-### TODO-009: Codex Adapter
+### TODO-010: Codex Adapter
 **What:** Hook into OpenAI Codex's agent system.
-**Depends on:** TODO-008.
+**Depends on:** TODO-009.
 
-### TODO-010: Gemini CLI Adapter
+### TODO-011: Gemini CLI Adapter
 **What:** Hook into Google's Gemini CLI agent system.
-**Depends on:** TODO-008.
+**Depends on:** TODO-009.
 
 ---
 
@@ -97,17 +99,17 @@ Items below are explicitly deferred but planned. Each includes the research that
 **Application:** Instead of one set of rules, maintain variants and A/B test them.
 **Status:** Fascinating but complex. Requires controlled experiments across sessions.
 
-### IDEA-003: Automatic Research Direction Generation
-**Inspiration:** AutoResearch's `program.md` is human-written. What if the agent generates its own research directions?
-**Application:** After N reflection cycles, Acumen proposes "areas to investigate" for the next cycle.
-**Status:** Phase 4+. Requires strong effectiveness measurement first.
+### IDEA-003: Forgetting Curve for Insights
+**Inspiration:** SAGE uses Ebbinghaus forgetting curve for memory optimization.
+**Application:** Insights that haven't been relevant for N sessions get demoted/archived.
+**Status:** Partially implemented via proposal auto-expiry (30-day TTL).
 
 ### IDEA-004: Cross-User Skill Marketplace
 **Inspiration:** SkillWeaver showed skills transfer from strong to weak agents.
 **Application:** Users share proven, anonymized skills via an opt-in marketplace.
 **Status:** Requires privacy framework, trust model, and distribution mechanism. Long-term.
 
-### IDEA-005: Forgetting Curve for Insights
-**Inspiration:** SAGE uses Ebbinghaus forgetting curve for memory optimization.
-**Application:** Insights that haven't been relevant for N sessions get demoted/archived. Prevents insight bloat.
-**Status:** Phase 3 when we have enough data to model decay.
+### IDEA-005: Stop Gate (Contradiction Detection)
+**Inspiration:** External review suggestion. Deterministic Stop hook that prevents fake-done states.
+**Application:** Before claiming work is done, verify tests pass and lint is clean.
+**Status:** Different product direction (enforcement vs advisory). Consider for v2.
