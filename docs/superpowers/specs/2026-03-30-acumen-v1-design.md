@@ -372,6 +372,8 @@ hooks/
   session-end.sh          -- existing (add eval tier detection)
   session-start.sh        -- existing (add baseline capture, eval tier)
   stop-gate.sh            -- NEW (~40 lines)
+  instructions-loaded.sh  -- NEW (~20 lines): confirms rules entered context
+  stop-failure.sh         -- NEW (~20 lines): blocks API errors from feeding attribution
 
 lib/
   store.py                -- existing (unchanged)
@@ -409,13 +411,15 @@ commands/
 
 ```
 Existing code:   ~800 lines
-stop-gate.sh:    ~40 lines
-evaluator.py:    ~140 lines
-skills.py:       ~200 lines
-evolve.py:       ~400 lines
-Other additions: ~100 lines
-Total new:       ~880 lines
-Total:           ~1680 lines
+stop-gate.sh:           ~40 lines
+instructions-loaded.sh: ~20 lines
+stop-failure.sh:        ~20 lines
+evaluator.py:           ~140 lines
+skills.py:              ~200 lines
+evolve.py:              ~400 lines
+Other additions:        ~100 lines
+Total new:              ~920 lines
+Total:                  ~1720 lines
 ```
 
 ---
@@ -442,6 +446,8 @@ Total:           ~1680 lines
 
 New files:
 - `hooks/stop-gate.sh` (~40 lines)
+- `hooks/instructions-loaded.sh` (~20 lines) -- records which acumen rules entered context; closes the "rule generated vs rule active" gap in attribution
+- `hooks/stop-failure.sh` (~20 lines) -- marks sessions with API/tool failures as `api_error`; prevents those sessions from feeding the learning pipeline
 - `lib/evaluator.py` (~140 lines)
 
 Modified files:
@@ -456,6 +462,8 @@ Tasks:
 - [ ] P1.2: Add baseline capture to `session-start.sh` (git state + pre-existing test failures)
 - [ ] P1.3: Add attribution classification to `agents/reflector.md`
 - [ ] P1.4: `hooks/stop-gate.sh` -- fast-signal evaluation, block on new failures, fail-open
+- [ ] P1.4b: `hooks/instructions-loaded.sh` -- append rule names that entered context to `.acumen/rule-activity.jsonl`
+- [ ] P1.4c: `hooks/stop-failure.sh` -- on API/tool failure at stop, append session marker so reflection skips it
 - [ ] P1.5: Extend `lib/improver.py` to use evaluator for effectiveness + filter non-agent-attributable failures
 - [ ] P1.6: Update `/acumen-status` to display eval tier and confidence label
 - [ ] P1.7: Test in 3+ real sessions across projects with and without test suites
