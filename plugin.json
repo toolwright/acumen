@@ -1,0 +1,27 @@
+{
+  "name": "acumen",
+  "version": "0.1.0",
+  "description": "Self-improving agent harness. Observes sessions, extracts insights, applies improvements.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/observe.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/observe.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
