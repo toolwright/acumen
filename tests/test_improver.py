@@ -2,7 +2,16 @@
 
 from datetime import datetime
 
-from lib.improver import generate_proposals, read_proposals, write_proposal, apply_proposal, auto_apply_proposals
+from lib.improver import (
+    generate_proposals,
+    read_proposals,
+    write_proposal,
+    apply_proposal,
+    auto_apply_proposals,
+    list_applied_rule_slugs,
+    measure_effectiveness,
+    promote_to_global,
+)
 
 
 def _insight(description="Bash fails on test commands", category="correction", evidence_count=5, **kw):
@@ -251,3 +260,233 @@ def test_auto_apply_returns_paths(tmp_path):
     assert "path" in applied[0]
     from pathlib import Path
     assert Path(applied[0]["path"]).exists()
+
+
+def test_auto_apply_records_applied_at(tmp_path):
+    """Auto-apply records applied_at timestamp on each applied proposal."""
+    proposals = [
+        {"description": "Timestamped rule", "target": "rule", "status": "proposed", "rule_text": "Rule."},
+    ]
+    auto_apply_proposals(tmp_path, proposals)
+    assert "applied_at" in proposals[0]
+    datetime.fromisoformat(proposals[0]["applied_at"])
+
+
+# -- list_applied_rule_slugs --
+
+
+def test_list_applied_rule_slugs_empty(tmp_path):
+    """Returns empty set when no rules directory exists."""
+    assert list_applied_rule_slugs(tmp_path) == set()
+
+
+def test_list_applied_rule_slugs_with_rules(tmp_path):
+    """Returns slugs of existing acumen-*.md rule files."""
+    rules_dir = tmp_path / ".claude" / "rules"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "acumen-use-python3.md").write_text("rule")
+    (rules_dir / "acumen-run-tests-first.md").write_text("rule")
+    (rules_dir / "other-rule.md").write_text("not acumen")
+
+    slugs = list_applied_rule_slugs(tmp_path)
+    assert slugs == {"use-python3", "run-tests-first"}
+
+
+# -- generate_proposals dedup --
+
+
+def test_generate_proposals_skips_existing_rule_slug(tmp_path):
+    """Skips insights whose slug matches an already-applied rule."""
+    insights = [_insight("Use python3 not python", category="correction")]
+    # The slug for this would be "use-python3-not-python"
+    existing = {"use-python3-not-python"}
+    proposals = generate_proposals(insights, existing_rule_slugs=existing)
+    assert proposals == []
+
+
+def test_generate_proposals_partial_dedup():
+    """Only skips insights that match existing slugs, not all."""
+    insights = [
+        _insight("Use python3 not python", category="correction"),
+        _insight("Run tests before committing", category="correction"),
+    ]
+    existing = {"use-python3-not-python"}
+    proposals = generate_proposals(insights, existing_rule_slugs=existing)
+    assert len(proposals) == 1
+    assert "Run tests" in proposals[0]["description"]
+
+
+def test_generate_proposals_stores_tools():
+    """Tools from insight are carried into the proposal."""
+    insights = [_insight("Use python3 not python", category="correction", tools=["Bash"])]
+    proposals = generate_proposals(insights)
+    assert proposals[0]["tools"] == ["Bash"]
+
+
+def test_generate_proposals_tools_default_empty():
+    """Proposals have empty tools list when insight has none."""
+    insights = [_insight("Some insight without tools")]
+    proposals = generate_proposals(insights)
+    assert proposals[0]["tools"] == []
+
+
+# -- measure_effectiveness --
+
+
+def _obs(tool, outcome, timestamp):
+    return {"tool_name": tool, "outcome": outcome, "timestamp": timestamp, "error_type": None}
+
+
+def test_measure_effectiveness_insufficient_data():
+    """Returns empty list when insufficient observations on either side."""
+    proposals = [{
+        "status": "auto-applied",
+        "applied_at": "2026-03-20T12:00:00+00:00",
+        "tools": ["Bash"],
+        "description": "Use python3",
+    }]
+    # Only 3 observations before -- below threshold of 5
+    obs = [_obs("Bash", "error", "2026-03-19T10:00:00+00:00") for _ in range(3)]
+    changed = measure_effectiveness(proposals, obs)
+    assert changed == []
+
+
+def test_measure_effectiveness_effective():
+    """Detects effective rule: error rate dropped >10% after application."""
+    applied_at = "2026-03-20T12:00:00+00:00"
+    proposals = [{
+        "status": "auto-applied",
+        "applied_at": applied_at,
+        "tools": ["Bash"],
+        "description": "Use python3",
+    }]
+    before = [_obs("Bash", "error", "2026-03-19T10:00:00+00:00") for _ in range(8)]
+    after = [_obs("Bash", "success", "2026-03-21T10:00:00+00:00") for _ in range(8)]
+    changed = measure_effectiveness(proposals, before + after)
+    assert len(changed) == 1
+    assert changed[0]["effectiveness"] == "effective"
+
+
+def test_measure_effectiveness_harmful():
+    """Detects harmful rule: error rate increased >10% after application."""
+    applied_at = "2026-03-20T12:00:00+00:00"
+    proposals = [{
+        "status": "auto-applied",
+        "applied_at": applied_at,
+        "tools": ["Bash"],
+        "description": "Some rule",
+    }]
+    before = [_obs("Bash", "success", "2026-03-19T10:00:00+00:00") for _ in range(8)]
+    after = [_obs("Bash", "error", "2026-03-21T10:00:00+00:00") for _ in range(8)]
+    changed = measure_effectiveness(proposals, before + after)
+    assert len(changed) == 1
+    assert changed[0]["effectiveness"] == "harmful"
+
+
+def test_measure_effectiveness_neutral():
+    """Rates within 10% delta produce neutral verdict."""
+    applied_at = "2026-03-20T12:00:00+00:00"
+    proposals = [{
+        "status": "auto-applied",
+        "applied_at": applied_at,
+        "tools": ["Bash"],
+        "description": "Some rule",
+    }]
+    # 20% error rate before and after -- no significant change
+    before = [_obs("Bash", "error" if i < 2 else "success", "2026-03-19T10:00:00+00:00") for i in range(10)]
+    after = [_obs("Bash", "error" if i < 2 else "success", "2026-03-21T10:00:00+00:00") for i in range(10)]
+    changed = measure_effectiveness(proposals, before + after)
+    assert len(changed) == 1
+    assert changed[0]["effectiveness"] == "neutral"
+
+
+def test_measure_effectiveness_skips_non_applied():
+    """Only measures proposals with status auto-applied."""
+    proposals = [
+        {"status": "proposed", "applied_at": "2026-03-20T12:00:00+00:00", "tools": ["Bash"], "description": "x"},
+        {"status": "reverted", "applied_at": "2026-03-20T12:00:00+00:00", "tools": ["Bash"], "description": "y"},
+    ]
+    obs = [_obs("Bash", "error", "2026-03-19T10:00:00+00:00") for _ in range(10)]
+    assert measure_effectiveness(proposals, obs) == []
+
+
+def test_measure_effectiveness_no_change_if_same_verdict():
+    """Does not add to changed list if verdict is already the same."""
+    applied_at = "2026-03-20T12:00:00+00:00"
+    proposals = [{
+        "status": "auto-applied",
+        "applied_at": applied_at,
+        "tools": ["Bash"],
+        "description": "Use python3",
+        "effectiveness": "effective",  # already recorded
+    }]
+    before = [_obs("Bash", "error", "2026-03-19T10:00:00+00:00") for _ in range(8)]
+    after = [_obs("Bash", "success", "2026-03-21T10:00:00+00:00") for _ in range(8)]
+    changed = measure_effectiveness(proposals, before + after)
+    assert changed == []  # verdict didn't change
+
+
+# -- scope_hint -> global_candidate --
+
+
+def test_generate_proposals_scope_hint_sets_global_candidate():
+    """Insights with scope_hint='global' produce proposals with scope='global_candidate'."""
+    insights = [_insight("Use python3 not python", category="correction", scope_hint="global")]
+    proposals = generate_proposals(insights)
+    assert proposals[0]["scope"] == "global_candidate"
+
+
+def test_generate_proposals_no_scope_hint_no_scope_field():
+    """Insights without scope_hint produce proposals without scope field."""
+    insights = [_insight("Run tests before commit", category="correction")]
+    proposals = generate_proposals(insights)
+    assert "scope" not in proposals[0]
+
+
+# -- promote_to_global --
+
+
+def test_promote_to_global_writes_to_home_claude_rules(tmp_path, monkeypatch):
+    """promote_to_global writes rule to ~/.claude/rules/acumen-{slug}.md."""
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    proposal = {
+        "description": "Use python3 not python",
+        "rule_text": "# Acumen insight\n\nUse python3 not python",
+        "status": "auto-applied",
+        "target": "rule",
+    }
+    path = promote_to_global(proposal)
+
+    assert path == tmp_path / ".claude" / "rules" / "acumen-use-python3-not-python.md"
+    assert path.exists()
+    assert "python3" in path.read_text()
+
+
+def test_promote_to_global_updates_proposal_in_place(tmp_path, monkeypatch):
+    """promote_to_global sets scope='global' and promoted_at on the proposal dict."""
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    proposal = {
+        "description": "Use python3 not python",
+        "rule_text": "# Acumen insight\n\nUse python3",
+        "status": "auto-applied",
+        "target": "rule",
+    }
+    promote_to_global(proposal)
+
+    assert proposal["scope"] == "global"
+    assert "promoted_at" in proposal
+    datetime.fromisoformat(proposal["promoted_at"])
+
+
+def test_promote_to_global_creates_dir_if_missing(tmp_path, monkeypatch):
+    """promote_to_global creates ~/.claude/rules/ if it doesn't exist."""
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    proposal = {
+        "description": "Some universal rule",
+        "rule_text": "# Rule\n\nContent",
+        "status": "auto-applied",
+        "target": "rule",
+    }
+    path = promote_to_global(proposal)
+    assert path.parent.is_dir()
+    assert path.exists()

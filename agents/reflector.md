@@ -101,6 +101,7 @@ Required fields:
 Optional fields:
 - `first_seen` (string): ISO timestamp of earliest related observation
 - `last_seen` (string): ISO timestamp of most recent related observation
+- `scope_hint` (string): Set to `"global"` if the insight is caused by environment/system constraints rather than project-specific code -- e.g., a missing command on PATH (exit 127), OS behavior, tool version mismatch, or any correction that would apply to every project on this machine. Do NOT set for project-specific patterns (test setup, database schema, architecture).
 
 ## Rules
 
@@ -116,14 +117,15 @@ Optional fields:
 
 ## Proposal Generation
 
-After insights are written, generate improvement proposals from them. Run:
+After insights are written, generate improvement proposals from them. Skip insights already applied as rules. Run:
 
 ```bash
 python3 -c "
 import sys, json
 sys.path.insert(0, 'lib')
+from pathlib import Path
 from store import resolve_scope_path, read_insights
-from improver import generate_proposals, write_proposal
+from improver import generate_proposals, write_proposal, list_applied_rule_slugs
 
 scope = resolve_scope_path('project')
 insights = read_insights(scope)
@@ -131,12 +133,44 @@ if not insights:
     print('No insights to generate proposals from.')
     sys.exit(0)
 
-proposals = generate_proposals(insights)
+existing_slugs = list_applied_rule_slugs(Path('.'))
+proposals = generate_proposals(insights, existing_slugs)
 for p in proposals:
     write_proposal(scope, p)
 
-print(json.dumps({'proposals_generated': len(proposals), 'top': [p['description'] for p in proposals[:5]]}, indent=2))
+skipped = len(insights) - len(proposals)
+summary = {'proposals_generated': len(proposals), 'skipped_already_applied': skipped, 'top': [p['description'] for p in proposals[:5]]}
+print(json.dumps(summary, indent=2))
 "
 ```
 
-This ensures a single `/acumen-reflect` invocation produces both insights AND proposals.
+## Effectiveness Measurement
+
+After proposal generation, measure whether previously-applied rules actually reduced errors. Run:
+
+```bash
+python3 -c "
+import sys, json, tempfile
+sys.path.insert(0, 'lib')
+from pathlib import Path
+from store import resolve_scope_path, read_observations
+from improver import read_proposals, measure_effectiveness
+
+scope = resolve_scope_path('project')
+observations = read_observations(scope, days=30)
+proposals = read_proposals(scope)
+changed = measure_effectiveness(proposals, observations)
+if changed:
+    fd, tmp = tempfile.mkstemp(dir=scope, suffix='.tmp')
+    with open(fd, 'w') as f:
+        json.dump(proposals, f, indent=2)
+    Path(tmp).replace(scope / 'proposals.json')
+    print(f'Effectiveness measured: {len(changed)} proposal(s) updated')
+    for p in changed:
+        print(f'  [{p[\"effectiveness\"].upper()}] {p[\"description\"]}')
+else:
+    print('Effectiveness: no proposals with sufficient data yet (need 5+ observations before and after)')
+"
+```
+
+This ensures a single `/acumen-reflect` invocation produces insights, proposals, AND effectiveness verdicts.

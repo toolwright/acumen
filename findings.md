@@ -454,3 +454,209 @@ The differences lie in WHAT gets improved, HOW evaluation works, and WHERE impro
 9. **Multi-agent specialization**: Google's Co-Scientist demonstrates that splitting generation, critique, ranking, and refinement across specialized agents produces better results than a monolithic system.
 
 10. **Git as experiment infrastructure**: AutoResearch's use of git commits as the experiment log is elegant and practical -- every improvement is traceable and reversible.
+
+---
+
+## 8. User Correction Capture: Research & Feasibility
+
+**Date**: 2026-03-30
+**Question**: How can Acumen detect when a user corrects the agent ("no, use X instead") without reading conversation content?
+
+### Hook Mechanisms Available in Claude Code
+
+Claude Code exposes these hook events:
+- `PreToolUse`: fires before a tool executes. Can block or allow.
+- `PostToolUse`: fires on success.
+- `PostToolUseFailure`: fires on failure.
+- `SessionStart` / `SessionEnd`: session lifecycle.
+- `UserPromptSubmit`: fires when the user submits a message (text only -- does not expose content to shell hooks).
+
+### What We Can Capture Without Content
+
+**Tool denial signal**: If a `PreToolUse` hook returns exit code 2, the tool call is blocked by the user. This is a correction signal -- the user rejected what the agent was about to do. We can capture: tool_name, whether it was blocked. We cannot capture why.
+
+**Edit divergence signal**: If the agent creates or edits a file (PostToolUse on Write/Edit tool) and the user then immediately runs another Edit on the same path within the same session, that suggests a correction. Observable from the observation stream by detecting: Write/Edit on path X → another Write/Edit on path X within N minutes in same session.
+
+**Session abandon signal**: If SessionEnd fires with low observation count after an agent output, the user may have abandoned the approach. Weak signal, noisy.
+
+**Retry pattern signal**: Already captured. If the agent makes 3+ similar tool calls in sequence, it's likely stuck or being corrected. This is the current implementation.
+
+### What Requires Content (Off-Limits)
+
+- Reading user message text to detect "no", "wrong", "actually" keywords
+- Reading tool response content to detect refusals or errors
+- Reading file contents to detect before/after divergence
+
+These are off-limits per the metadata-only design principle (security + privacy).
+
+### Feasibility Assessment
+
+| Signal | Capturable? | Noise Level | Implementation Cost |
+|--------|-------------|-------------|---------------------|
+| Tool denial (PreToolUse block) | Yes | Low | ~15 lines (new hook) |
+| Edit divergence (same path, same session) | Yes | Medium | ~20 lines (session-level state) |
+| Session abandon | Yes | High | Not worth it |
+| Retry pattern | Already done | Medium | Done |
+
+### Recommendation
+
+**Highest-value next step**: Add `PreToolUse` hook that records tool denials. A denied `Write` or `Edit` is a strong correction signal -- the user stopped the agent from writing something. Combined with error_message from the subsequent tool attempt, this could identify what the agent was trying to do wrong.
+
+**Design**: Add `PreToolUse` to observe.sh handling. When `hook_event_name == "PreToolUse"`, record `{tool_name, outcome: "denied", error_type: "user_denied"}`. This stays within metadata-only principles.
+
+**Edit divergence**: Session-level state is complex (observe.sh is stateless; it writes to append-only JSONL). Could detect in the reflector by analyzing the observation stream for `Write tool on path X → Write tool on same path X within same session_id`.
+
+### Conclusion
+
+User correction capture is feasible via the tool denial signal (PreToolUse). This does NOT require reading message content. The reflector can detect edit divergence patterns from the existing observation stream. Implement denial capture in a future TODO once the value of the tool_denial signal is proven through observation.
+
+---
+
+## 9. Claude Code Plugin Ecosystem & Competitive Landscape
+
+**Date**: 2026-03-30
+**Scope**: Current state of Claude Code plugins for self-improvement, the plugin ecosystem, competing tools, and developer pain points.
+
+### 9a. The Claude Code Plugin Ecosystem (March 2026)
+
+**Maturity**: The plugin system launched in public beta October 2025 and is now stable. It has reached meaningful scale -- the official Anthropic marketplace (`anthropics/claude-plugins-official`) contains 55+ curated plugins. Community marketplaces like buildwithclaude.com track 494+ extensions. One aggregator repo (`jeremylongshore/claude-code-plugins-plus-skills`) claims 340 plugins + 1,367 agent skills.
+
+**Plugin Registry Architecture**:
+- **Official Anthropic marketplace**: Ships pre-configured with Claude Code. Browse via `/plugin` -> Discover tab, or at `claude.com/plugins`. Install with `/plugin install <name>@claude-plugins-official`.
+- **Third-party marketplaces**: Anyone can create a marketplace by hosting a GitHub repo with a `.claude-plugin/marketplace.json`. Add with `/plugin marketplace add <owner>/<repo>`. Notable: `davepoon/buildwithclaude`, `claudemarketplaces.com`.
+- **Direct install**: `claude plugin add <github-url>` or `claude plugin install <name>@<marketplace>`.
+
+**Installation scopes**:
+- **User scope** (default): `~/.claude/plugins/`, works across all projects
+- **Project scope**: `.claude/plugins/`, shared with collaborators via repo
+- **Local scope**: Current repo only, not shared
+
+**Auto-updates**: Plugins auto-update at startup when enabled. The system refreshes marketplace data and updates plugins to latest versions.
+
+**Key takeaway**: The ecosystem is real and growing fast. `claude plugin add` works from registries now -- it is NOT local-only. Acumen's install command (`claude plugin add acumen`) will work once it is in a marketplace.
+
+**Sources**: [Claude Code Docs - Discover Plugins](https://code.claude.com/docs/en/discover-plugins), [Claude Code Docs - Plugin Marketplaces](https://code.claude.com/docs/en/plugin-marketplaces), [anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official), [buildwithclaude.com](https://buildwithclaude.com/)
+
+### 9b. Direct Competitors: Self-Improving Agent Plugins
+
+Six projects compete directly in the "make Claude Code self-improving" space:
+
+**1. claude-reflect (BayramAnnakov/claude-reflect)**
+- Most mature competitor. 160 passing tests. Cross-platform (macOS, Linux, Windows).
+- Captures corrections, positive feedback, and preferences from sessions.
+- Syncs learnings to CLAUDE.md and AGENTS.md after human review.
+- `/reflect` command triggers Claude to validate queued items using NLU.
+- Multi-language support (corrections in any language).
+- Claims ~30% reduction in repetitive instructions (anecdotal, from GitHub/X).
+- **Differentiation from Acumen**: claude-reflect reads conversation content to extract corrections. Acumen is metadata-only (security/privacy advantage). claude-reflect is reactive (captures what users say); Acumen is proactive (observes patterns, synthesizes skills).
+
+**2. claude-reflect-system (haddock-development/claude-reflect-system)**
+- Fork/variant of the claude-reflect concept. Focused on "continual learning" -- learn from corrections, never repeat mistakes.
+- Less mature than the original claude-reflect.
+
+**3. self-improving-agent skill (alirezarezvani/claude-skills)**
+- Part of a 192-skill collection for multiple coding agents (Claude Code, Codex, Gemini CLI, Cursor, etc.).
+- Turns auto-memory into a structured self-improvement loop: analyze what Claude learned, promote proven patterns to enforced rules, extract recurring solutions into reusable skills.
+- **Key similarity to Acumen**: Same observe -> learn -> improve -> expand architecture concept.
+- **Key difference**: It is a skill (prompt), not a plugin with hooks. No automated observation -- relies on Claude's built-in auto-memory as input. No shell hooks, no metadata capture.
+
+**4. claude-meta (aviadr1/claude-meta)**
+- A single-prompt approach: one prompt placed in CLAUDE.md bootstraps a self-improving system.
+- Meta-rules + reflection = continuous improvement.
+- Minimal -- just a prompt, no plugin infrastructure.
+- **Limitation**: No persistent observation, no automated hook pipeline. Only works within a single session's context.
+
+**5. self-learning-claude (reshadat/self-learning-claude)**
+- Framework for "evolving context playbooks." Claude learns from success and failure, building project-specific knowledge that persists across sessions.
+- More framework than plugin -- requires manual setup.
+
+**6. Self-Improving Claude Code Seed Prompt (ChristopherA, GitHub Gist)**
+- A ~1,400 token prompt placed in `.claude/CLAUDE.md` that bootstraps self-improvement.
+- Captures learnings, extracts patterns, evolves its own configuration.
+- Minimalist approach -- no external dependencies, no hooks.
+
+**Competitive Assessment**:
+
+| Feature | Acumen | claude-reflect | self-improving-agent skill | claude-meta |
+|---------|--------|----------------|---------------------------|-------------|
+| Automated observation | Yes (shell hooks) | No (reads chat) | No (uses auto-memory) | No |
+| Privacy-safe (metadata only) | Yes | No (reads content) | N/A | N/A |
+| Zero dependencies | Yes | Yes (Node.js) | Yes (prompt only) | Yes (prompt only) |
+| Cross-session persistence | Yes (JSONL store) | Yes (CLAUDE.md) | Partial (auto-memory) | No |
+| Skill synthesis | Yes (planned) | No | Sort of (promotes to skills) | No |
+| Automated application | Yes (SAFE tier) | Needs human review | Manual | Manual |
+| Plugin packaging | Yes (plugin.json) | Yes | No (skill file) | No (gist) |
+
+**Acumen's unique positioning**: Only tool that does automated metadata-only observation via shell hooks with cross-session persistence and automated safe-tier application. Every competitor either reads conversation content (privacy concern) or is a passive prompt without automated data collection.
+
+**Sources**: [claude-reflect](https://github.com/BayramAnnakov/claude-reflect), [claude-reflect-system](https://github.com/haddock-development/claude-reflect-system), [self-improving-agent](https://github.com/alirezarezvani/claude-skills/tree/main/engineering-team/self-improving-agent), [claude-meta](https://github.com/aviadr1/claude-meta), [self-learning-claude](https://github.com/reshadat/self-learning-claude)
+
+### 9c. Agent Observability Tools (Adjacent Competition)
+
+These are not self-improvement tools, but they compete for the "understand what your agent is doing" value prop:
+
+**1. Claude Code built-in telemetry**: Claude Code natively exports OpenTelemetry data for usage, costs, and tool activity. Organizations can pipe this to Datadog, Honeycomb, etc.
+
+**2. claude-code-hooks-multi-agent-observability (disler)**: Real-time monitoring for Claude Code agents through hook event tracking. Captures, stores, and visualizes hook events with session tracking, event filtering, and live updates. Closest to Acumen's observation layer but without the learning/improvement loop.
+
+**3. claude_telemetry (TechNickAI)**: OpenTelemetry wrapper that logs tool calls, token usage, costs, and execution traces to Logfire, Sentry, Honeycomb, or Datadog. Drop-in replacement (`claudia` command instead of `claude`).
+
+**4. claude-code-otel (ColeMurray)**: Comprehensive observability for monitoring Claude Code usage, performance, and costs via OpenTelemetry.
+
+**5. agent-observability plugin (nexus-labs-automation)**: Claude Code plugin for LLM tracing, tool calls, multi-agent coordination, cost tracking. 14 focused skills.
+
+**6. Claude HUD**: Monitoring plugin showing context usage, active tools, running agents, and TODO progress. Dashboard-style visibility.
+
+**7. Enterprise platforms (Datadog, Arize, Langfuse, Braintrust)**: Full-scale agent observability platforms. Langfuse has 26M+ SDK monthly installs, 19 of Fortune 50 as clients. These are production monitoring, not self-improvement -- but they capture the data that could feed a self-improvement loop.
+
+**Gap in the market**: All observability tools stop at "see what happened." None of them close the loop into "automatically learn from what happened and improve." That is Acumen's value proposition.
+
+**Sources**: [Claude Code Monitoring Docs](https://code.claude.com/docs/en/monitoring-usage), [claude-code-hooks-multi-agent-observability](https://github.com/disler/claude-code-hooks-multi-agent-observability), [claude_telemetry](https://github.com/TechNickAI/claude_telemetry), [agent-observability](https://github.com/nexus-labs-automation/agent-observability), [Langfuse](https://langfuse.com), [Arize](https://arize.com/blog/best-ai-observability-tools-for-autonomous-agents-in-2026/)
+
+### 9d. Developer Pain Points with AI Coding Agents (2026)
+
+Research from Stack Overflow 2025 Developer Survey, SonarSource State of Code 2026, CodeRabbit, and LinearB reveals the pain points Acumen should target:
+
+**The Big Five Pain Points**:
+
+1. **"Almost right" code (45% of developers)**: The single largest frustration. AI generates code that looks correct but has subtle bugs. 66% of developers spend more time fixing "almost-right" AI code than they save. This is the verification bottleneck.
+
+2. **Context amnesia / session memory loss**: LLM agents forget project conventions, repeat known mistakes, lose coherence across sessions. Every session starts from zero. Multiple articles and Reddit threads describe this as the most frustrating daily experience. One Medium article title captures it: "Why Your AI Coding Agent Keeps Forgetting Everything."
+
+3. **Trust deficit (only 29% trust AI code accuracy)**: Trust declined from 40% to 29% year-over-year. The more developers use AI tools, the less they trust them.
+
+4. **Code quality degradation at scale**: LinearB data shows 67.3% of AI-generated PRs get rejected vs 15.6% for manual code. Google DORA Report: 90% AI adoption increase correlates with 9% bug rate climb, 91% code review time increase, 154% PR size increase. AI code creates 1.7x more issues (CodeRabbit).
+
+5. **Architectural drift**: Agents make locally sensible but globally inconsistent decisions. They suggest deprecated APIs, miss internal conventions, and produce style inconsistencies even with linters configured.
+
+**Secondary Pain Points**:
+- Cost (loudest complaint on Reddit)
+- Agent adoption resistance (52% either don't use agents or stick to simpler tools)
+- Collaboration impact (only 17% say agents improved team collaboration -- lowest-rated impact)
+- Inconsistent output (1.5x more likely to produce code not matching team standards)
+
+**What Developers Want** (synthesized from complaints):
+- An agent that remembers project conventions across sessions
+- An agent that learns from its own mistakes and doesn't repeat them
+- An agent that maintains consistent code style and architecture
+- Better signal on what the agent is actually doing and why
+- Reduced verification burden -- the agent should catch its own mistakes
+
+**Acumen's alignment**: Pain points 2 (context amnesia), 3 (trust), and 5 (drift) are exactly what Acumen targets. The observe->learn->improve loop directly addresses "remembers conventions" and "learns from mistakes." The metadata-only approach addresses trust (privacy-safe). The skill synthesis addresses drift (codifying patterns into reusable rules).
+
+**Sources**: [Stack Overflow 2025 Developer Survey](https://survey.stackoverflow.co/2025/ai), [SonarSource State of Code 2026](https://www.sonarsource.com/state-of-code-developer-survey-report.pdf), [CodeRabbit AI vs Human Report](https://www.coderabbit.ai/blog/state-of-ai-vs-human-code-generation-report), [Faros AI Agent Reviews](https://www.faros.ai/blog/best-ai-coding-agents-2026), [Mike Mason on Agent Coherence](https://mikemason.ca/writing/ai-coding-agents-jan-2026/)
+
+### 9e. Strategic Implications for Acumen
+
+**Strengths to emphasize**:
+1. **Privacy-safe metadata-only observation** -- no competitor does this. Every alternative reads conversation content.
+2. **Automated hook-based data collection** -- competitors rely on manual triggers or reading auto-memory.
+3. **Zero external dependencies** -- Python stdlib only. Most competitors need Node.js, npm packages, or external services.
+4. **Plugin packaging ready** -- proper plugin.json, installable via marketplace system.
+
+**Gaps to address**:
+1. **Marketplace presence** -- Acumen needs to be in `anthropics/claude-plugins-official` or `buildwithclaude` to be discoverable. Currently install is local-only.
+2. **Demonstrated results** -- claude-reflect claims 30% reduction in repetitive instructions. Acumen needs comparable metrics.
+3. **Cross-platform testing** -- claude-reflect explicitly supports macOS/Linux/Windows with 160 tests. Acumen's test coverage needs to be competitive.
+
+**Market timing**: The ecosystem is growing fast. The window to establish Acumen as the "observability + self-improvement" plugin is open but closing. Multiple approaches are converging on the same problem from different angles.
