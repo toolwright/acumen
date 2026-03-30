@@ -78,6 +78,7 @@ def test_bash_error_detected(tmp_path):
     obs = read_observations(tmp_path)
     assert obs[0]["outcome"] == "error"
     assert obs[0]["error_type"] == "tool_failure"
+    assert obs[0]["error_message"] == "Command exited with non-zero status code 1"
 
 
 def test_bash_success_detected(tmp_path):
@@ -92,6 +93,7 @@ def test_bash_success_detected(tmp_path):
     obs = read_observations(tmp_path)
     assert obs[0]["outcome"] == "success"
     assert obs[0]["error_type"] is None
+    assert obs[0]["error_message"] is None
 
 
 def test_tool_error_field(tmp_path):
@@ -107,6 +109,7 @@ def test_tool_error_field(tmp_path):
     obs = read_observations(tmp_path)
     assert obs[0]["outcome"] == "error"
     assert obs[0]["error_type"] == "tool_failure"
+    assert obs[0]["error_message"] == "File not found"
 
 
 # -- Security tests --

@@ -28,6 +28,12 @@ obs=$(jq -c --arg ts "$timestamp" '
       elif .error != null then "tool_error"
       else null
       end
+    ),
+    error_message: (
+      if .hook_event_name == "PostToolUseFailure" then (.error // null)
+      elif .error != null then .error
+      else null
+      end
     )
   }
 ' 2>/dev/null) || exit 0
