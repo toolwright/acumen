@@ -292,28 +292,34 @@ The LLM generates insights as structured data, not free text.
 
 ### 3.6 Improvement Application
 
-Each improvement type has a specific mechanism:
+Acumen uses Claude Code's native persistence systems with strict namespacing.
+**Acumen NEVER modifies CLAUDE.md** -- that's the user's document.
 
-**CLAUDE.md rules:**
-- Appended to a managed section at the bottom of CLAUDE.md
-- Section is clearly marked: `<!-- acumen:managed:start -->` ... `<!-- acumen:managed:end -->`
-- User can edit/remove any rule manually
-- Acumen never modifies user-written rules above the managed section
+```
+Tiered persistence (research-grounded):
 
-**Memory entries:**
-- Written to the Claude Code memory system (`.claude/memory/`)
-- Follow the standard memory format with frontmatter
-- Tagged with `source: acumen` for traceability
+  Tier 1: PATH-SCOPED RULES (.claude/rules/acumen-*.md)
+    - Corrections like "use python3 not python"
+    - Only loaded when editing relevant files (minimal budget)
+    - User can delete any rule file to override
 
-**Hooks:**
-- Generated as shell scripts in `.claude/hooks/`
-- Always proposed as REVIEW tier (user must approve)
-- Include comments explaining what the hook does and why
+  Tier 2: MEMORY (.claude/memory/acumen/*.md)
+    - General insights and preferences
+    - Separate budget from CLAUDE.md instructions
+    - All entries in acumen/ subdirectory (never touch user memories)
 
-**Skills:**
-- Generated as `.md` files in `.claude/skills/`
-- Always proposed as MANUAL tier
-- Include the evidence that motivated the skill
+  Tier 3: HOOKS (Phase 3, requires explicit user opt-in)
+    - Deterministic enforcement for code-verifiable rules
+    - Zero instruction budget cost
+    - Acumen never writes to user's settings.json
+
+  NEVER: Auto-append to CLAUDE.md.
+```
+
+**Namespacing rules:**
+- Rule files: `.claude/rules/acumen-<name>.md` (prefixed, easy to identify/delete)
+- Memory files: `.claude/memory/acumen/<name>.md` (subdirectory, isolated)
+- Acumen writes ONLY to paths it owns. Never modifies user files.
 
 ### 3.7 Effectiveness Measurement
 
