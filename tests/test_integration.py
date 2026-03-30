@@ -1,15 +1,15 @@
 """Integration tests for the reflection pipeline: observations -> scoring -> storage -> display."""
 
 import json
-import os
 import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from lib.store import read_observations, write_insight, read_insights, resolve_scope_path
+from lib.store import read_observations, write_insight, read_insights
 from lib.scorer import score_insight, dedup_insights, rank_insights
 from lib.formatter import format_status, format_insights
+from lib.improver import generate_proposals, apply_proposal
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 HOOK_PATH = Path(__file__).parent.parent / "hooks" / "observe.sh"
@@ -339,6 +339,95 @@ def test_full_pipeline_with_fixture_data(tmp_path):
     assert "Bash tool has high error rate" in insights_output
     assert "Edit tool occasionally fails" in insights_output
     assert "Read tool used frequently" in insights_output
+
+
+# -- Phase 2: insight -> proposal -> approve -> applied file --
+
+
+def test_insight_to_proposal_to_rule(tmp_path):
+    """Full pipeline: insight -> generate proposal -> approve -> apply -> rule file exists."""
+    insight = {
+        "description": "Use python3 not python in Bash commands",
+        "category": "correction",
+        "evidence_count": 7,
+        "tools": ["Bash"],
+    }
+    proposals = generate_proposals([insight])
+    assert len(proposals) == 1
+    assert proposals[0]["target"] == "rule"
+
+    # Approve and apply
+    proposals[0]["status"] = "approved"
+    path = apply_proposal(tmp_path, proposals[0])
+
+    assert path.exists()
+    assert path.parent == tmp_path / ".claude" / "rules"
+    assert path.name.startswith("acumen-")
+    assert "python3" in path.read_text()
+
+
+def test_insight_to_proposal_to_memory(tmp_path):
+    """Full pipeline: non-correction insight -> memory file."""
+    insight = {
+        "description": "Read tool is heavily used without errors",
+        "category": "best_practice",
+        "evidence_count": 12,
+        "tools": ["Read"],
+    }
+    proposals = generate_proposals([insight])
+    assert proposals[0]["target"] == "memory"
+
+    proposals[0]["status"] = "approved"
+    path = apply_proposal(tmp_path, proposals[0])
+
+    assert path.exists()
+    assert "acumen" in str(path.parent)
+    assert "Read tool" in path.read_text()
+
+
+def test_full_pipeline_observe_to_apply(tmp_path):
+    """End-to-end: observations -> score -> insights -> proposals -> apply."""
+    observations = _sample_observations(n_success=10, n_error=8)
+    _make_observations(tmp_path, observations)
+    read_obs = read_observations(tmp_path)
+
+    # Simulate reflector output
+    insights = [
+        {
+            "description": "Bash commands frequently fail with nonzero exit",
+            "category": "correction",
+            "evidence_count": 8,
+            "tools": ["Bash"],
+        },
+        {
+            "description": "Error recovery follows a retry-then-succeed pattern",
+            "category": "recovery_pattern",
+            "evidence_count": 4,
+            "tools": ["Bash"],
+        },
+    ]
+    # Score
+    for ins in insights:
+        relevant = [o for o in read_obs if o.get("tool_name") in ins["tools"]]
+        scores = score_insight(ins, relevant)
+        ins.update(scores)
+
+    # Generate proposals
+    proposals = generate_proposals(insights)
+    assert len(proposals) == 2
+    assert proposals[0]["target"] == "rule"      # correction
+    assert proposals[1]["target"] == "memory"    # non-correction
+
+    # Approve and apply both
+    for p in proposals:
+        p["status"] = "approved"
+        apply_proposal(tmp_path, p)
+
+    # Verify files
+    rules = list((tmp_path / ".claude" / "rules").glob("acumen-*.md"))
+    mems = list((tmp_path / ".claude" / "memory" / "acumen").glob("*.md"))
+    assert len(rules) == 1
+    assert len(mems) == 1
 
 
 def test_pipeline_observe_hook_to_format(tmp_path):

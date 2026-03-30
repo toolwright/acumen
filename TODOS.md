@@ -6,12 +6,8 @@ Items below are explicitly deferred from Phase 1 but planned for future phases. 
 
 ## Phase 2: IMPROVE (Auto-Application)
 
-### TODO-001: CLAUDE.md Managed Section
-**What:** Auto-append learned rules to a `<!-- acumen:managed -->` section in CLAUDE.md.
-**Why:** Compounding engineering (Anthropic's highest-leverage recommendation). Every correction captured means that error class never recurs. Teams report time-to-ship dropping from >1 week to 1-3 days after 3 months.
-**Research:** Anthropic best practices, community consensus on compounding engineering.
-**Depends on:** Phase 1 (insights must exist before we can apply them).
-**Safety:** REVIEW tier -- user must approve each rule before it's added.
+### TODO-001: Persistence
+**What:** /Users/thomasallicino/oss/acumen/findings-persistence-mechanisms.md
 
 ### TODO-002: Memory Entry Generation
 **What:** Write insights to Claude Code's `.claude/memory/` system as structured memory entries.

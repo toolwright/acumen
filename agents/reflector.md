@@ -105,8 +105,10 @@ Optional fields:
 ## Rules
 
 - Only report patterns with 3+ supporting observations. Do not report noise.
-- **Use error_message to generate ACTIONABLE rules.** Bad: "Bash tool fails frequently." Good: "Use `python3` instead of `python` -- exit code 127 indicates command not found." The goal is rules that PREVENT the error from recurring.
-- Descriptions must be specific and actionable. Each insight should read like a CLAUDE.md rule the agent could follow.
+- **Prioritize "correction" category insights.** These are the most valuable -- they become rules that prevent errors. If an error has a clear fix (e.g., "use python3 not python"), always emit a correction.
+- **Use error_message to determine the fix.** Bad: "Bash tool fails frequently." Good: "Use `python3` instead of `python` -- exit code 127 indicates command not found."
+- **Skip descriptive-only patterns.** If an insight just says "X happened" without "do Y instead", do NOT emit it. Every insight must be prescriptive: "do X" or "avoid Y" or "check Z before W".
+- **Keep descriptions short** -- under 80 characters when possible. They become filenames.
 - Do not invent observations. Only report what the data shows.
 - If there are no meaningful patterns, report that clearly and write zero insights.
 - Do not read file contents or tool inputs. You only have metadata + error messages.
