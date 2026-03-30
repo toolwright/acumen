@@ -151,3 +151,21 @@ class TestSessionStart:
         run_hook(SESSION_START, tmp_path)
         result = run_hook(SESSION_START, tmp_path)
         assert result.stdout.strip() == ""
+
+    def test_shows_rule_count_when_rules_exist(self, tmp_path):
+        """Shows improvement summary when acumen rules exist and no flag."""
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True, exist_ok=True)
+        (rules_dir / "acumen-use-python3.md").write_text("rule")
+        (rules_dir / "acumen-run-tests.md").write_text("rule")
+
+        result = run_hook(SESSION_START, tmp_path)
+        assert result.returncode == 0
+        assert "2 active rule" in result.stdout
+        assert "/acumen-status" in result.stdout
+
+    def test_no_summary_without_rules(self, tmp_path):
+        """No summary output when no acumen rules exist."""
+        result = run_hook(SESSION_START, tmp_path)
+        assert result.returncode == 0
+        assert result.stdout.strip() == ""
