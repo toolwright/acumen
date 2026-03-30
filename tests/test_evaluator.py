@@ -33,6 +33,17 @@ def test_detect_returns_none_when_no_config(tmp_path):
     assert "lint_cmd" in cmds
 
 
+def test_detects_pytest_from_tests_dir(tmp_path):
+    """tests/ dir with test_*.py files -> detects python3 -m pytest (no config file needed)."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_something.py").write_text("def test_x(): pass\n")
+    from lib.evaluator import detect_eval_commands
+    cmds = detect_eval_commands(tmp_path)
+    if shutil.which("python3"):
+        assert cmds["test_cmd"] == "python3 -m pytest"
+
+
 def test_build_config_tier1_when_tests_found(tmp_path):
     """Project with pyproject.toml -> tier=1, confidence=HIGH when pytest found."""
     (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")

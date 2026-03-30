@@ -37,7 +37,8 @@ def detect_eval_commands(project_root: Path) -> dict[str, str | None]:
 
     has_pyproject = (root / "pyproject.toml").exists()
     has_pytest_ini = (root / "pytest.ini").exists() or (root / "setup.cfg").exists()
-    if (has_pyproject or has_pytest_ini) and shutil.which("python3"):
+    has_tests_dir = (root / "tests").is_dir() and any((root / "tests").glob("test_*.py"))
+    if (has_pyproject or has_pytest_ini or has_tests_dir) and shutil.which("python3"):
         result["test_cmd"] = "python3 -m pytest"
     elif (root / "package.json").exists() and shutil.which("npx"):
         result["test_cmd"] = "npx jest --passWithNoTests"

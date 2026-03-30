@@ -102,11 +102,67 @@ Canonical map of what Acumen can do today. No roadmap items. Every entry has fil
 **Files:** `lib/improver.py` -- `expire_stale_proposals()`
 **Entry point:** Called during session-start auto-reflection flow
 
+## CAP-IMP-007: Effectiveness Measurement with Eval Confidence
+
+**What:** Wraps effectiveness measurement with an eval tier confidence label (HIGH/MEDIUM/LOW) derived from `eval-config.json`.
+**Files:** `lib/improver.py` -- `measure_effectiveness_with_confidence()`
+**Entry point:** Called by reflector agent, and by `/acumen-effectiveness` command
+**Output:** Adds `eval_confidence` field to updated proposals
+
+## CAP-IMP-008: Rule Retirement
+
+**What:** Automatically retires applied rules that are harmful (after 7 days) or neutral (after 30 days). Deletes `.claude/rules/acumen-*.md` file and sets status='retired'.
+**Files:** `lib/improver.py` -- `retire_ineffective_proposals()`, `hooks/session-end.sh`
+**Entry point:** SessionEnd hook each session (fail-open)
+**Safety:** Effective rules and rules with no verdict (pending) are never retired.
+
+---
+
+## CAP-TRUST-001: Stop Gate
+
+**What:** Blocks agent from stopping when new test failures are introduced this session. Defers for slow test suites (>2s). Fail-open on all errors.
+**Files:** `hooks/stop-gate.sh`
+**Entry point:** Stop hook (fires before agent terminates)
+**Baseline:** Compares against `session-baseline.json` — only blocks on NEW failures, not pre-existing ones.
+**Loop guard:** `stop_hook_active=True` input exits immediately to prevent infinite blocking.
+
+## CAP-TRUST-002: InstructionsLoaded Hook
+
+**What:** Records which acumen rules entered context each session. Closes "rule generated vs rule active" attribution gap.
+**Files:** `hooks/instructions-loaded.sh`
+**Entry point:** InstructionsLoaded hook
+**Storage:** `.acumen/rule-activity.jsonl`
+
+## CAP-TRUST-003: StopFailure Hook
+
+**What:** Marks sessions that ended with API/tool failures so the reflection pipeline can exclude them.
+**Files:** `hooks/stop-failure.sh`
+**Entry point:** StopFailure hook
+**Storage:** `.acumen/stop-failures.jsonl`
+
+---
+
+## CAP-EVAL-001: Evaluation Signal Detection and Running
+
+**What:** Auto-detects available evaluation signals (test suite > lint > error rate), measures latency, classifies tier (1=HIGH, 2=MEDIUM, 3=LOW). Runs signals for stop gate and effectiveness measurement.
+**Files:** `lib/evaluator.py` -- `build_eval_config()`, `detect_eval_commands()`, `run_eval_signal()`
+**Entry point:** Called at session-start; loaded by stop gate and effectiveness commands
+**Detection:** pyproject.toml / pytest.ini / tests/ dir (Python), package.json (JS), Cargo.toml (Rust), go.mod (Go)
+**Storage:** `.acumen/eval-config.json` (rebuilt every 24h)
+**Fast threshold:** Tests taking <2s run inline in stop gate; >2s deferred to session-end.
+
+## CAP-EVAL-002: Session Baseline Capture
+
+**What:** Runs evaluation signal at session start and stores pass/fail counts. Stop gate compares against this to distinguish new failures from pre-existing ones.
+**Files:** `hooks/session-start.sh`, `lib/evaluator.py` -- `run_eval_signal()`
+**Entry point:** SessionStart hook Job 3 (only when fast_for_stop_gate=True)
+**Storage:** `.acumen/session-baseline.json`
+
 ---
 
 ## CAP-DISP-001: Status Dashboard
 
-**What:** Shows session count, observation count, error rate, daily activity, top insights.
+**What:** Shows session count, observation count, error rate, daily activity, top insights, and evaluation tier/confidence.
 **Files:** `commands/status.md`, `lib/formatter.py` -- `format_status()`
 **Entry point:** `/acumen-status` command
 
@@ -115,6 +171,12 @@ Canonical map of what Acumen can do today. No roadmap items. Every entry has fil
 **What:** Shows all insights ranked by combined score with category and evidence count.
 **Files:** `commands/insights.md`, `lib/formatter.py` -- `format_insights()`
 **Entry point:** `/acumen-insights` command
+
+## CAP-DISP-003: Rule Effectiveness Dashboard
+
+**What:** Shows per-rule effectiveness verdicts (effective/neutral/harmful/pending) with eval confidence labels.
+**Files:** `commands/effectiveness.md`
+**Entry point:** `/acumen-effectiveness` command
 
 ---
 
