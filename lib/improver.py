@@ -118,6 +118,32 @@ def auto_apply_proposals(project_root: Path, proposals: list[dict]) -> list[dict
     return applied
 
 
+def measure_effectiveness_with_confidence(
+    proposals: list[dict],
+    observations: list[dict],
+    project_root: Path,
+) -> list[dict]:
+    """Score applied proposals using before/after error rates, with eval tier confidence label.
+
+    Wraps measure_effectiveness() and adds eval_confidence to each updated proposal.
+    Falls back to confidence='LOW' if no eval config exists.
+    """
+    try:
+        try:
+            from evaluator import load_eval_config
+        except ImportError:
+            from lib.evaluator import load_eval_config
+        config = load_eval_config(project_root)
+        confidence = config.confidence if config else "LOW"
+    except Exception:
+        confidence = "LOW"
+
+    changed = measure_effectiveness(proposals, observations)
+    for p in changed:
+        p["eval_confidence"] = confidence
+    return changed
+
+
 def promote_to_global(proposal: dict) -> Path:
     """Copy an effective project rule to global Claude Code rules (~/.claude/rules/).
 

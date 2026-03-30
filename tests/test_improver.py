@@ -10,6 +10,7 @@ from lib.improver import (
     auto_apply_proposals,
     list_applied_rule_slugs,
     measure_effectiveness,
+    measure_effectiveness_with_confidence,
     promote_to_global,
     expire_stale_proposals,
 )
@@ -538,3 +539,75 @@ def test_promote_to_global_creates_dir_if_missing(tmp_path, monkeypatch):
     path = promote_to_global(proposal)
     assert path.parent.is_dir()
     assert path.exists()
+
+
+# --- measure_effectiveness_with_confidence ---
+
+
+def _make_dated_obs(tool_name: str, outcome: str, days_ago: float) -> dict:
+    from datetime import datetime, timezone, timedelta
+    ts = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+    return {"tool_name": tool_name, "outcome": outcome, "timestamp": ts}
+
+
+def test_measure_effectiveness_with_confidence_high_tier(tmp_path):
+    """Tier 1 eval config -> effectiveness verdict has eval_confidence='HIGH'."""
+    from lib.evaluator import EvalConfig, save_eval_config
+    from datetime import datetime, timezone, timedelta
+    save_eval_config(
+        EvalConfig(tier=1, confidence="HIGH", test_cmd="python3 -m pytest",
+                   lint_cmd=None, test_latency_ms=400, fast_for_stop_gate=True),
+        tmp_path,
+    )
+    applied_at = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    proposal = {
+        "description": "Some rule",
+        "status": "auto-applied",
+        "applied_at": applied_at,
+        "tools": ["Bash"],
+    }
+    before_obs = [_make_dated_obs("Bash", "error", 2) for _ in range(6)]
+    after_obs = [_make_dated_obs("Bash", "success", i * 0.1) for i in range(6)]
+    changed = measure_effectiveness_with_confidence([proposal], before_obs + after_obs, tmp_path)
+    if changed:
+        assert proposal["eval_confidence"] == "HIGH"
+
+
+def test_measure_effectiveness_with_confidence_low_tier(tmp_path):
+    """Tier 3 eval config -> effectiveness verdict has eval_confidence='LOW'."""
+    from lib.evaluator import EvalConfig, save_eval_config
+    from datetime import datetime, timezone, timedelta
+    save_eval_config(
+        EvalConfig(tier=3, confidence="LOW", test_cmd=None, lint_cmd=None,
+                   test_latency_ms=0, fast_for_stop_gate=False),
+        tmp_path,
+    )
+    applied_at = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    proposal = {
+        "description": "Some rule",
+        "status": "auto-applied",
+        "applied_at": applied_at,
+        "tools": ["Bash"],
+    }
+    before_obs = [_make_dated_obs("Bash", "error", 2) for _ in range(6)]
+    after_obs = [_make_dated_obs("Bash", "success", i * 0.1) for i in range(6)]
+    changed = measure_effectiveness_with_confidence([proposal], before_obs + after_obs, tmp_path)
+    if changed:
+        assert proposal["eval_confidence"] == "LOW"
+
+
+def test_measure_effectiveness_with_confidence_no_config(tmp_path):
+    """No eval config -> falls back to confidence='LOW', does not raise."""
+    from datetime import datetime, timezone, timedelta
+    applied_at = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    proposal = {
+        "description": "Some rule",
+        "status": "auto-applied",
+        "applied_at": applied_at,
+        "tools": ["Bash"],
+    }
+    before_obs = [_make_dated_obs("Bash", "error", 2) for _ in range(6)]
+    after_obs = [_make_dated_obs("Bash", "success", i * 0.1) for i in range(6)]
+    changed = measure_effectiveness_with_confidence([proposal], before_obs + after_obs, tmp_path)
+    if changed:
+        assert "eval_confidence" in proposal
