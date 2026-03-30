@@ -163,6 +163,23 @@ def expire_stale_proposals(proposals: list[dict], max_age_days: int = 30) -> lis
     return proposals
 
 
+def revert_proposal(project_root: Path, proposal: dict) -> str:
+    """Revert an applied proposal by deleting its rule file.
+
+    Updates proposal status to 'reverted' in-place.
+    Returns a message describing what was reverted.
+    """
+    slug = _slugify(proposal["description"])
+    path = project_root / ".claude" / "rules" / f"acumen-{slug}.md"
+    if path.exists():
+        path.unlink()
+        msg = f"Reverted: {path}"
+    else:
+        msg = f"File already removed: {path}"
+    proposal["status"] = "reverted"
+    return msg
+
+
 def measure_effectiveness(proposals: list[dict], observations: list[dict]) -> list[dict]:
     """Score applied proposals as effective/neutral/harmful using before/after error rates.
 

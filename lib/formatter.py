@@ -40,6 +40,30 @@ def format_status(observations: list[dict], insights: list[dict], last_reflectio
     return "\n".join(lines)
 
 
+def format_review(proposals: list[dict]) -> str:
+    """Format applied improvements for /acumen-review. Returns plain text."""
+    applied = [p for p in proposals if p.get("status") in ("approved", "auto-applied")]
+    if not applied:
+        return "No applied improvements. Run /acumen-reflect first."
+
+    lines = [f"{len(applied)} applied improvement(s):", ""]
+    global_candidates = []
+    for i, p in enumerate(applied, 1):
+        eff = f" [{p['effectiveness'].upper()}]" if p.get("effectiveness") else ""
+        lines.append(f"  {i}. [RULE]{eff} {p['description']}")
+        if p.get("scope") == "global_candidate" and p.get("scope") != "global":
+            global_candidates.append(p)
+
+    if global_candidates:
+        lines.append("")
+        lines.append("GLOBAL PROMOTION CANDIDATES (would apply across all projects):")
+        for p in global_candidates:
+            proven = " -- proven effective" if p.get("effectiveness") == "effective" else ""
+            lines.append(f"  * {p['description']}{proven}")
+
+    return "\n".join(lines)
+
+
 def format_insights(insights: list[dict]) -> str:
     """Format ranked insight list for /acumen-insights. Returns plain text."""
     if not insights:
