@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+import re as _re
+
 from lib.improver import (
     generate_proposals,
     read_proposals,
@@ -13,6 +15,7 @@ from lib.improver import (
     measure_effectiveness_with_confidence,
     promote_to_global,
     expire_stale_proposals,
+    retire_ineffective_proposals,
 )
 
 
@@ -611,3 +614,66 @@ def test_measure_effectiveness_with_confidence_no_config(tmp_path):
     changed = measure_effectiveness_with_confidence([proposal], before_obs + after_obs, tmp_path)
     if changed:
         assert "eval_confidence" in proposal
+
+
+# --- retire_ineffective_proposals ---
+
+
+def _make_applied_proposal(effectiveness: str, days_ago: float) -> dict:
+    from datetime import datetime, timezone, timedelta
+    applied_at = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+    return {
+        "description": f"Do something useful with {effectiveness}",
+        "rule_text": "# rule",
+        "target": "rule",
+        "status": "auto-applied",
+        "applied_at": applied_at,
+        "effectiveness": effectiveness,
+    }
+
+
+def test_retire_harmful_rule_after_threshold(tmp_path):
+    """Harmful rule older than min_days_harmful is retired and rule file deleted."""
+    rules_dir = tmp_path / ".claude" / "rules"
+    rules_dir.mkdir(parents=True)
+    p = _make_applied_proposal("harmful", days_ago=8)
+    slug = _re.sub(r"[^a-z0-9]+", "-", p["description"].lower()).strip("-")[:40]
+    rule_file = rules_dir / f"acumen-{slug}.md"
+    rule_file.write_text("# rule")
+
+    retired = retire_ineffective_proposals([p], tmp_path)
+
+    assert len(retired) == 1
+    assert p["status"] == "retired"
+    assert not rule_file.exists()
+
+
+def test_skip_harmful_rule_too_recent(tmp_path):
+    """Harmful rule applied only 3 days ago is kept."""
+    p = _make_applied_proposal("harmful", days_ago=3)
+    retired = retire_ineffective_proposals([p], tmp_path)
+    assert len(retired) == 0
+    assert p["status"] == "auto-applied"
+
+
+def test_retire_neutral_rule_after_threshold(tmp_path):
+    """Neutral rule older than min_days_neutral (30) is retired."""
+    p = _make_applied_proposal("neutral", days_ago=31)
+    retired = retire_ineffective_proposals([p], tmp_path)
+    assert len(retired) == 1
+    assert p["status"] == "retired"
+
+
+def test_skip_pending_rule(tmp_path):
+    """Rule with no effectiveness verdict (pending) is never retired."""
+    p = _make_applied_proposal("pending", days_ago=90)
+    p.pop("effectiveness")  # simulate pending -- no key
+    retired = retire_ineffective_proposals([p], tmp_path)
+    assert len(retired) == 0
+
+
+def test_skip_effective_rule(tmp_path):
+    """Effective rule is never retired regardless of age."""
+    p = _make_applied_proposal("effective", days_ago=90)
+    retired = retire_ineffective_proposals([p], tmp_path)
+    assert len(retired) == 0

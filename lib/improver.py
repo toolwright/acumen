@@ -189,6 +189,43 @@ def expire_stale_proposals(proposals: list[dict], max_age_days: int = 30) -> lis
     return proposals
 
 
+def retire_ineffective_proposals(
+    proposals: list[dict],
+    project_root: Path,
+    min_days_harmful: int = 7,
+    min_days_neutral: int = 30,
+) -> list[dict]:
+    """Retire applied rules that are harmful or persistently neutral.
+
+    Deletes the .claude/rules/acumen-{slug}.md file and sets status='retired'.
+    Rules with no effectiveness verdict (pending) are never retired.
+    Returns list of retired proposals.
+    """
+    now = datetime.now(timezone.utc)
+    retired = []
+    for p in proposals:
+        if p.get("status") not in ("auto-applied", "approved"):
+            continue
+        effectiveness = p.get("effectiveness")
+        try:
+            applied_dt = datetime.fromisoformat(p.get("applied_at", ""))
+            age_days = (now - applied_dt).total_seconds() / 86400
+        except (ValueError, TypeError):
+            continue
+        if effectiveness == "harmful" and age_days >= min_days_harmful:
+            pass  # retire
+        elif effectiveness == "neutral" and age_days >= min_days_neutral:
+            pass  # retire
+        else:
+            continue
+        slug = _slugify(p["description"])
+        rule_path = project_root / ".claude" / "rules" / f"acumen-{slug}.md"
+        rule_path.unlink(missing_ok=True)
+        p["status"] = "retired"
+        retired.append(p)
+    return retired
+
+
 def revert_proposal(project_root: Path, proposal: dict) -> str:
     """Revert an applied proposal by deleting its rule file.
 
