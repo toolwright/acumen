@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-from lib.scorer import dedup_insights, rank_insights, score_insight
+from lib.scorer import dedup_insights, filter_valid_insights, rank_insights, score_insight, validate_insight
 
 
 def _obs(tool="Bash", outcome="success", days_ago=0):
@@ -100,3 +100,54 @@ def test_dedup_empty_inputs():
     assert dedup_insights([], []) == []
     assert len(dedup_insights([_insight()], [])) == 1
     assert len(dedup_insights([], [_insight()])) == 1
+
+
+# --- validate_insight ---
+
+
+def test_validate_valid_insight():
+    ins = {"description": "Use python3", "category": "correction", "evidence_count": 5, "tools": ["Bash"]}
+    assert validate_insight(ins) is True
+
+
+def test_validate_missing_description():
+    ins = {"category": "correction", "evidence_count": 5, "tools": ["Bash"]}
+    assert validate_insight(ins) is False
+
+
+def test_validate_empty_description():
+    ins = {"description": "", "category": "correction", "evidence_count": 5, "tools": ["Bash"]}
+    assert validate_insight(ins) is False
+
+
+def test_validate_missing_category():
+    ins = {"description": "test", "evidence_count": 5, "tools": ["Bash"]}
+    assert validate_insight(ins) is False
+
+
+def test_validate_negative_evidence():
+    ins = {"description": "test", "category": "correction", "evidence_count": -1, "tools": ["Bash"]}
+    assert validate_insight(ins) is False
+
+
+def test_validate_non_dict():
+    assert validate_insight("not a dict") is False
+    assert validate_insight(None) is False
+    assert validate_insight(42) is False
+
+
+def test_validate_tools_not_list():
+    ins = {"description": "test", "category": "correction", "evidence_count": 5, "tools": "Bash"}
+    assert validate_insight(ins) is False
+
+
+def test_filter_valid_insights_drops_invalid():
+    insights = [
+        {"description": "good", "category": "correction", "evidence_count": 5, "tools": ["Bash"]},
+        {"description": "", "category": "bad", "evidence_count": 0, "tools": []},
+        "not a dict",
+        {"missing": "fields"},
+    ]
+    valid = filter_valid_insights(insights)
+    assert len(valid) == 1
+    assert valid[0]["description"] == "good"

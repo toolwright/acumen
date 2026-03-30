@@ -11,6 +11,7 @@ from lib.improver import (
     list_applied_rule_slugs,
     measure_effectiveness,
     promote_to_global,
+    expire_stale_proposals,
 )
 
 
@@ -478,6 +479,51 @@ def test_promote_to_global_updates_proposal_in_place(tmp_path, monkeypatch):
     assert proposal["scope"] == "global"
     assert "promoted_at" in proposal
     datetime.fromisoformat(proposal["promoted_at"])
+
+
+# -- expire_stale_proposals --
+
+
+def test_expire_removes_old_rejected():
+    """Rejected proposals older than 30 days are removed."""
+    proposals = [
+        {"description": "old", "status": "rejected", "created": "2026-02-01T00:00:00+00:00"},
+        {"description": "new", "status": "rejected", "created": datetime.now().isoformat()},
+    ]
+    expire_stale_proposals(proposals)
+    assert len(proposals) == 1
+    assert proposals[0]["description"] == "new"
+
+
+def test_expire_removes_old_proposed():
+    """Proposed (never applied) proposals older than 30 days are removed."""
+    proposals = [
+        {"description": "stale", "status": "proposed", "created": "2026-02-01T00:00:00+00:00"},
+    ]
+    expire_stale_proposals(proposals)
+    assert proposals == []
+
+
+def test_expire_keeps_applied():
+    """Applied/auto-applied proposals are never expired regardless of age."""
+    proposals = [
+        {"description": "applied", "status": "auto-applied", "created": "2025-01-01T00:00:00+00:00"},
+        {"description": "approved", "status": "approved", "created": "2025-01-01T00:00:00+00:00"},
+    ]
+    expire_stale_proposals(proposals)
+    assert len(proposals) == 2
+
+
+def test_expire_keeps_recent_rejected():
+    """Recent rejected proposals are kept."""
+    proposals = [
+        {"description": "recent", "status": "rejected", "created": datetime.now().isoformat()},
+    ]
+    expire_stale_proposals(proposals)
+    assert len(proposals) == 1
+
+
+# -- promote_to_global --
 
 
 def test_promote_to_global_creates_dir_if_missing(tmp_path, monkeypatch):

@@ -3,6 +3,33 @@
 import math
 from datetime import datetime, timezone
 
+REQUIRED_INSIGHT_FIELDS = {"description", "category", "evidence_count", "tools"}
+
+
+def validate_insight(insight: dict) -> bool:
+    """Check that an insight has all required fields with valid types.
+
+    Returns True if valid. Logs reason and returns False otherwise.
+    Drops invalid insights rather than crashing the pipeline.
+    """
+    if not isinstance(insight, dict):
+        return False
+    for field in REQUIRED_INSIGHT_FIELDS:
+        if field not in insight:
+            return False
+    if not isinstance(insight["description"], str) or not insight["description"]:
+        return False
+    if not isinstance(insight["evidence_count"], (int, float)) or insight["evidence_count"] < 0:
+        return False
+    if not isinstance(insight["tools"], list):
+        return False
+    return True
+
+
+def filter_valid_insights(insights: list) -> list[dict]:
+    """Filter a list to only valid insights. Drops invalid entries silently."""
+    return [i for i in insights if isinstance(i, dict) and validate_insight(i)]
+
 
 def score_insight(insight: dict, observations: list[dict]) -> dict:
     """Compute confidence (0-1), impact (0-1), combined score for an insight.

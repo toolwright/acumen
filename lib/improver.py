@@ -136,6 +136,33 @@ def promote_to_global(proposal: dict) -> Path:
     return out_path
 
 
+def expire_stale_proposals(proposals: list[dict], max_age_days: int = 30) -> list[dict]:
+    """Remove proposals older than max_age_days that were never applied.
+
+    Removes proposals with status 'rejected' or 'proposed' whose created
+    timestamp is older than max_age_days. Applied/auto-applied proposals
+    are never expired (they're the historical record).
+
+    Returns the filtered list (in-place modification).
+    """
+    now = datetime.now(timezone.utc)
+    keep = []
+    for p in proposals:
+        if p.get("status") in ("rejected", "proposed"):
+            created = p.get("created", "")
+            try:
+                dt = datetime.fromisoformat(created)
+                age_days = (now - dt).total_seconds() / 86400
+                if age_days > max_age_days:
+                    continue  # expired, drop
+            except (ValueError, TypeError):
+                pass  # unparseable date, keep it
+        keep.append(p)
+    proposals.clear()
+    proposals.extend(keep)
+    return proposals
+
+
 def measure_effectiveness(proposals: list[dict], observations: list[dict]) -> list[dict]:
     """Score applied proposals as effective/neutral/harmful using before/after error rates.
 
