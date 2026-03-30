@@ -66,8 +66,8 @@ def apply_proposal(project_root: Path, proposal: dict) -> Path:
     Memory -> .claude/memory/acumen/<slug>.md
     Raises ValueError if proposal is not approved.
     """
-    if proposal.get("status") != "approved":
-        raise ValueError(f"Cannot apply proposal with status '{proposal.get('status')}' -- must be approved")
+    if proposal.get("status") not in ("approved", "auto-applied"):
+        raise ValueError(f"Cannot apply proposal with status '{proposal.get('status')}' -- must be approved or auto-applied")
 
     slug = _slugify(proposal["description"])
     rule_text = proposal.get("rule_text", proposal["description"])
@@ -84,3 +84,19 @@ def apply_proposal(project_root: Path, proposal: dict) -> Path:
         out_path.write_text(rule_text + "\n")
 
     return out_path
+
+
+def auto_apply_proposals(project_root: Path, proposals: list[dict]) -> list[dict]:
+    """Auto-apply all proposals. Sets status to 'auto-applied', writes files.
+
+    Returns list of dicts with 'description', 'target', and 'path' for each applied proposal.
+    Skips proposals that already have a terminal status (approved, auto-applied, rejected).
+    """
+    applied = []
+    for p in proposals:
+        if p.get("status") not in ("proposed",):
+            continue
+        p["status"] = "auto-applied"
+        path = apply_proposal(project_root, p)
+        applied.append({"description": p["description"], "target": p["target"], "path": str(path)})
+    return applied

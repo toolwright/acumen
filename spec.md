@@ -48,34 +48,34 @@ Acumen is a harness that makes AI coding agents self-improving, self-evolving, a
 
 ### 2.1 The Four Phases
 
-**OBSERVE:** Capture what happens during agent sessions.
-- Hook into tool calls (pre/post)
-- Track outcomes (success, failure, correction)
-- Record user feedback (corrections, "no not that", "yes perfect")
-- Measure code quality signals (test pass rate, lint errors, churn)
+**OBSERVE [DONE]:** Capture what happens during agent sessions.
+- [DONE] Hook into tool calls (PostToolUse, PostToolUseFailure via shell hook)
+- [DONE] Track outcomes (success, error, with error_type and error_message)
+- [PLANNED] Record user feedback (corrections, "no not that", "yes perfect")
+- [PLANNED] Measure code quality signals (test pass rate, lint errors, churn)
 
-**LEARN:** Extract actionable insights from observations.
-- Failure analysis: what went wrong and why (ExpeL-style)
-- Success attribution: what worked and should be repeated
-- Pattern detection: recurring mistakes, common corrections
-- Quality trends: is the agent getting better or worse over time
+**LEARN [DONE]:** Extract actionable insights from observations.
+- [DONE] Failure analysis: what went wrong and why (ExpeL-style)
+- [PLANNED] Success attribution: what worked and should be repeated
+- [DONE] Pattern detection: recurring mistakes, common corrections
+- [PLANNED] Quality trends: is the agent getting better or worse over time
 
-**IMPROVE:** Apply learnings to make the agent better.
-- Update CLAUDE.md rules (compounding engineering)
-- Create/update memory entries (cross-session persistence)
-- Generate hooks (deterministic enforcement of learned rules)
-- Adjust agent behavior via context injection
+**IMPROVE [DONE]:** Apply learnings to make the agent better.
+- [DONE] Write path-scoped rules (.claude/rules/acumen-*.md)
+- [DONE] Create/update memory entries (.claude/memory/acumen/)
+- [PLANNED] Generate hooks (deterministic enforcement of learned rules)
+- [DONE] Context injection via SessionStart hook (flag-and-defer auto-reflection)
 
-**EXPAND:** Grow the agent's capabilities.
-- Synthesize new skills from successful multi-step patterns (SkillWeaver-style)
-- Create slash commands for recurring workflows
-- Build reusable templates from successful sessions
+**EXPAND [PLANNED]:** Grow the agent's capabilities.
+- [PLANNED] Synthesize new skills from successful multi-step patterns (SkillWeaver-style)
+- [PLANNED] Create slash commands for recurring workflows
+- [PLANNED] Build reusable templates from successful sessions
 
 ### 2.2 Three Scopes
 
 ```
 +----------------------------------------------------------+
-|                     GLOBAL SCOPE                          |
+|                 GLOBAL SCOPE [PLANNED]                    |
 |  Universal learnings that apply across all projects       |
 |  Storage: ~/.claude/acumen/global/                        |
 |  Examples:                                                |
@@ -86,18 +86,18 @@ Acumen is a harness that makes AI coding agents self-improving, self-evolving, a
 +----------------------------------------------------------+
         |
 +----------------------------------------------------------+
-|                    PROJECT SCOPE                          |
+|                 PROJECT SCOPE [DONE]                      |
 |  Learnings specific to a project's codebase & patterns   |
 |  Storage: .acumen/ in project root                        |
 |  Examples:                                                |
 |    - "This project uses Pydantic v2, not v1"              |
 |    - "Tests go in tests/, mirror source structure"        |
 |    - Project-specific error patterns                      |
-|    - CLAUDE.md rule suggestions                           |
+|    - Path-scoped rules and memory entries                 |
 +----------------------------------------------------------+
         |
 +----------------------------------------------------------+
-|                    SESSION SCOPE                          |
+|                 SESSION SCOPE [PLANNED]                   |
 |  Within-conversation adaptation and reflection            |
 |  Storage: in-memory (ephemeral)                           |
 |  Examples:                                                |
@@ -107,7 +107,7 @@ Acumen is a harness that makes AI coding agents self-improving, self-evolving, a
 +----------------------------------------------------------+
 ```
 
-**Scope interaction rules:**
+**Scope interaction rules [PLANNED]:**
 - Global rules are injected into all sessions as baseline context
 - Project rules override global rules when they conflict
 - Session learnings are candidates for promotion to project or global scope
@@ -117,76 +117,93 @@ Acumen is a harness that makes AI coding agents self-improving, self-evolving, a
 
 ## 3. Technical Design
 
-### 3.1 Plugin Architecture (Claude Code First)
+### 3.1 Plugin Architecture (Claude Code First) [DONE]
 
 Acumen delivers as a Claude Code plugin:
 
 ```
 acumen/                           # Plugin root
-  plugin.json                     # Plugin manifest
+  plugin.json                     # Plugin manifest [DONE]
   skills/
-    observe.md                    # Observation skill
-    reflect.md                    # Reflection/learning skill
-    improve.md                    # Improvement application skill
+    reflect.md                    # Reflection skill [DONE]
   commands/
-    acumen-status.md              # Show improvement status
-    acumen-reflect.md             # Trigger manual reflection
-    acumen-insights.md            # View current insights
-    acumen-review.md              # Review & approve pending improvements
+    status.md                     # /acumen-status [DONE]
+    reflect.md                    # /acumen-reflect [DONE]
+    insights.md                   # /acumen-insights [DONE]
+    review.md                     # /acumen-review [DONE]
   hooks/
-    post-tool-use.sh              # Observe tool outcomes
-    pre-commit.sh                 # Quality gate before commits
-    session-end.sh                # End-of-session reflection trigger
+    observe.sh                    # PostToolUse observation [DONE]
+    session-end.sh                # Flag-and-defer reflection trigger [DONE]
+    session-start.sh              # Inject reflection prompt [DONE]
   agents/
-    observer.md                   # Background observation agent
-    reflector.md                  # Reflection/analysis agent
-    improver.md                   # Improvement application agent
+    reflector.md                  # Reflection/analysis subagent [DONE]
+  lib/
+    store.py                      # JSONL read/write + scope resolution [DONE]
+    scorer.py                     # Confidence/impact scoring + dedup [DONE]
+    formatter.py                  # CLI display formatting [DONE]
+    improver.py                   # Proposal generation + application [DONE]
 ```
+
+> **Simplifications from original plan:** Observation is handled entirely by the
+> shell hook (no separate observer agent needed). Improvement is handled by
+> lib/improver.py + the /acumen-review command (no separate improver agent
+> needed). The observe.md and improve.md skills were unnecessary indirection.
 
 ### 3.2 Data Model
 
+**Observation [DONE]** (simplified from original spec -- metadata only):
 ```
-Observation {
-  id: string (ulid)
-  timestamp: datetime
-  scope: "session" | "project" | "global"
-  type: "tool_call" | "correction" | "success" | "failure" | "feedback"
-  context: {
-    tool: string          # Which tool was called
-    args: dict            # What arguments
-    result: string        # What happened (truncated)
-    outcome: "success" | "failure" | "corrected"
-    user_feedback: string | null
-  }
-  session_id: string
-  project: string
+{
+  tool_name: string,
+  session_id: string,
+  timestamp: string (ISO 8601),
+  outcome: "success" | "error",
+  error_type: null | "tool_failure" | "tool_error",
+  error_message: string | null
 }
+```
 
-Insight {
-  id: string (ulid)
-  created: datetime
-  scope: "session" | "project" | "global"
-  type: "anti_pattern" | "best_practice" | "correction" | "skill_candidate"
-  evidence: list[Observation.id]      # What observations support this
-  confidence: float (0-1)             # How confident are we
-  description: string                 # Natural language description
-  action: {
-    type: "claude_md_rule" | "memory_entry" | "hook" | "skill" | "none"
-    content: string                   # The specific rule/hook/skill to create
-    status: "proposed" | "approved" | "applied" | "reverted"
-  }
-  metrics: {
-    occurrences: int                  # How many times observed
-    impact: float                     # Estimated impact (0-1)
-    last_seen: datetime
-  }
+> Stored as JSONL in `.acumen/observations/YYYY-MM-DD.jsonl`. No id field
+> (append-only, no need for lookups). No args/result capture (security).
+
+**Insight [DONE]** (simplified):
+```
+{
+  description: string,           # Natural language, dedup key
+  category: "error_pattern" | "retry_pattern" | "recovery_pattern" |
+            "usage_spike" | "best_practice" | "correction",
+  evidence_count: int,
+  tools: list[string],
+  confidence: float (0-1),       # Computed by scorer.py
+  impact: float (0-1),           # Computed by scorer.py
+  combined: float (0-1),         # Weighted: 0.4*confidence + 0.6*impact
+  first_seen: string | null,
+  last_seen: string | null
 }
+```
 
+> Stored as JSON array in `.acumen/insights.json`.
+
+**Proposal [DONE]** (replaces ImprovementLog for Phase 1-2):
+```
+{
+  description: string,
+  rule_text: string,
+  target: "rule" | "memory",
+  status: "proposed" | "approved" | "rejected",
+  created: string (ISO 8601)
+}
+```
+
+> Stored as JSON array in `.acumen/proposals.json`.
+
+**ImprovementLog [PLANNED]** -- full effectiveness tracking:
+```
 ImprovementLog {
   id: string (ulid)
   insight_id: string
   applied_at: datetime
-  type: "claude_md_rule" | "memory_entry" | "hook" | "skill"
+  type: "rule" | "memory" | "hook" | "skill"
   before_state: string | null
   after_state: string
   status: "active" | "reverted"
@@ -200,7 +217,7 @@ ImprovementLog {
 }
 ```
 
-### 3.3 The Learning Loop
+### 3.3 The Learning Loop [DONE]
 
 ```
               +---> Observe session
@@ -237,37 +254,33 @@ ImprovementLog {
 | REVIEW | User approval needed | CLAUDE.md rule additions, hook creation |
 | MANUAL | Never auto-applied | Skill creation, global rule changes |
 
-### 3.4 Observation Mechanism
+### 3.4 Observation Mechanism [DONE]
 
-Claude Code plugins support hooks that fire on tool use:
+Observation is a shell hook (`hooks/observe.sh`) that fires on PostToolUse and
+PostToolUseFailure events. Single jq pass, <5ms.
 
-```yaml
-# PostToolUse hook: observe outcomes
-hooks:
-  post_tool_use:
-    - event: "tool_result"
-      script: "acumen observe"
-      # Captures: tool name, args, result, duration
-      # Detects: failures, corrections, retries
-```
+**What we observe today:**
+- [DONE] Tool call outcomes (success/error + error_type + error_message)
+- [DONE] Session ID and timestamp
 
-**What we observe (non-exhaustive):**
-- Tool call outcomes (success/failure/error type)
-- User corrections ("no", "not that", "stop", "undo")
-- Retry patterns (same tool called 3+ times)
-- Test results (pass/fail counts, which tests)
-- Lint/type errors introduced
-- Files modified (to track code churn later)
-- Time between task start and completion
+**Planned observation expansion:**
+- [PLANNED] User corrections ("no", "not that", "stop", "undo")
+- [PLANNED] Retry patterns (same tool called 3+ times)
+- [PLANNED] Test results (pass/fail counts, which tests)
+- [PLANNED] Lint/type errors introduced
+- [PLANNED] Files modified (to track code churn later)
 
-**What we do NOT observe (privacy):**
-- File contents (only paths and metadata)
+**What we do NOT observe (privacy) -- this is permanent:**
+- File contents (only tool_name and metadata)
+- Tool input values or tool response content
 - API keys, tokens, secrets
-- Full conversation history (only structured events)
+- Full conversation history
 
-### 3.5 Reflection Engine
+### 3.5 Reflection Engine [DONE]
 
-The reflection engine runs at session end (or on demand via `/acumen-reflect`):
+The reflection engine runs on demand via `/acumen-reflect`, or is prompted
+automatically via the flag-and-defer mechanism (SessionEnd sets flag,
+SessionStart injects context suggesting the user run `/acumen-reflect`):
 
 ```
 Input: Session observations
@@ -290,7 +303,7 @@ Output: Ranked list of proposed improvements
 
 The LLM generates insights as structured data, not free text.
 
-### 3.6 Improvement Application
+### 3.6 Improvement Application [DONE]
 
 Acumen uses Claude Code's native persistence systems with strict namespacing.
 **Acumen NEVER modifies CLAUDE.md** -- that's the user's document.
@@ -321,7 +334,7 @@ Tiered persistence (research-grounded):
 - Memory files: `.claude/memory/acumen/<name>.md` (subdirectory, isolated)
 - Acumen writes ONLY to paths it owns. Never modifies user files.
 
-### 3.7 Effectiveness Measurement
+### 3.7 Effectiveness Measurement [PLANNED]
 
 After applying an improvement, Acumen tracks whether it helped:
 
@@ -346,26 +359,23 @@ Action:
 
 ## 4. User Experience
 
-### 4.1 Installation
+### 4.1 Installation [DONE]
+
+Acumen is a pure Claude Code plugin. No pip install, no venv, no config files.
 
 ```bash
-# One command install
-pip install acumen
+# From a local clone (development)
+claude --plugin-dir /path/to/acumen
 
-# Initialize in a project
-cd my-project
-acumen init
-# Creates .acumen/ directory
-# Adds managed section to CLAUDE.md
-# Sets up hooks
-```
-
-Or as a Claude Code plugin:
-```bash
+# Or, once published to the plugin registry [PLANNED]:
 claude plugin add acumen
 ```
 
-### 4.2 Day-to-Day Usage
+The `.acumen/` directory is created automatically on first tool use (the
+observation hook creates `.acumen/observations/` as needed). No init command
+required.
+
+### 4.2 Day-to-Day Usage [DONE]
 
 **Passive mode (default):** User works normally. Acumen observes silently.
 
@@ -375,7 +385,7 @@ claude plugin add acumen
 - `/acumen-insights` -- View all current insights with evidence
 - `/acumen-review` -- Review and approve/reject pending improvements
 
-### 4.3 The Dashboard
+### 4.3 The Dashboard [DONE — basic; trend metrics PLANNED]
 
 ```
 +--------------------------------------------------+
@@ -399,36 +409,33 @@ claude plugin add acumen
 +--------------------------------------------------+
 ```
 
-### 4.4 Configuration
+### 4.4 Configuration [PLANNED]
 
-Minimal configuration required. One file: `.acumen/config.yaml`
+No configuration file exists today. All behavior is hardcoded with sensible
+defaults (observation threshold of 10, project scope only, all proposals require
+user approval via `/acumen-review`).
+
+A future `config.yaml` may be added if users need to customize behavior:
 
 ```yaml
-# Acumen configuration (all optional, these are defaults)
-auto_apply:
-  safe: true          # Auto-apply SAFE tier improvements
-  review: false       # Require approval for REVIEW tier
-  manual: false       # Never auto-apply MANUAL tier
-
+# PLANNED -- not yet implemented
 reflection:
-  trigger: "session_end"    # When to reflect
-  min_observations: 5       # Min observations before reflecting
-
-observation:
-  track_tool_calls: true
-  track_corrections: true
-  track_test_results: true
-  track_lint_errors: true
+  trigger: "session_end"
+  min_observations: 10
 
 scopes:
-  global: true        # Enable global scope
-  project: true       # Enable project scope
-  session: true       # Enable session scope
+  global: true
+  project: true
+  session: true
 ```
+
+For now, the only tunable is the `ACUMEN_REFLECT_THRESHOLD` environment variable
+(default: 10), which controls how many new observations trigger the auto-reflect
+flag.
 
 ---
 
-## 5. Tech Stack
+## 5. Tech Stack [DONE]
 
 - **Architecture:** Pure Claude Code plugin (zero external dependencies)
 - **Observation:** Shell script (bash/jq) for hot path
@@ -465,14 +472,13 @@ scopes:
 
 ---
 
-## 6. File Structure
+## 6. File Structure [DONE]
 
 ```
 acumen/                              # Plugin root (this IS the repo)
   plugin.json                        # Plugin manifest
   README.md                          # Public-facing documentation
   CLAUDE.md                          # Development guidelines
-  CAPABILITIES.md                    # Capability registry
   spec.md                            # This specification
   findings.md                        # Research findings
 
@@ -483,9 +489,12 @@ acumen/                              # Plugin root (this IS the repo)
     status.md                        # /acumen-status command
     reflect.md                       # /acumen-reflect command
     insights.md                      # /acumen-insights command
+    review.md                        # /acumen-review command
 
   hooks/
     observe.sh                       # PostToolUse observation (shell/jq)
+    session-end.sh                   # Flag-and-defer: set should-reflect flag
+    session-start.sh                 # Flag-and-defer: inject reflection prompt
 
   agents/
     reflector.md                     # Reflection analysis subagent
@@ -494,17 +503,14 @@ acumen/                              # Plugin root (this IS the repo)
     store.py                         # JSONL file read/write + scope resolution
     scorer.py                        # Confidence/impact scoring + dedup
     formatter.py                     # Status/insight formatting for CLI output
+    improver.py                      # Proposal generation + application
 
   tests/                             # Test suite (dev only)
-    conftest.py                      # Shared fixtures
     test_store.py
     test_scorer.py
     test_formatter.py
-    test_observe_hook.py             # Integration test for shell hook
-    test_integration.py              # Full pipeline test
     fixtures/
       sample_observations.jsonl
-      sample_insights.json
 ```
 
 ---
@@ -513,7 +519,7 @@ acumen/                              # Plugin root (this IS the repo)
 
 ### 7.1 User-Facing Goals
 
-1. **Install in under 2 minutes** -- `pip install acumen && acumen init`
+1. **Install in under 2 minutes** -- `claude --plugin-dir /path/to/acumen`
 2. **Zero mandatory configuration** -- works with defaults
 3. **Measurable improvement within 1 week** -- user sees trends in `/acumen-status`
 4. **No workflow disruption** -- passive by default, active only when invoked
@@ -539,32 +545,33 @@ acumen/                              # Plugin root (this IS the repo)
 
 ## 8. Phased Implementation
 
-### Phase 1: Observe + Learn (MVP)
-- Observation hooks (tool calls, corrections, test results)
-- Basic reflection (pattern detection, insight extraction)
-- Status command showing trends
-- JSON file storage
-- Project scope only
+### Phase 1: Observe + Learn (MVP) [DONE]
+- [DONE] Observation hooks (tool calls via shell hook)
+- [DONE] Basic reflection (pattern detection, insight extraction via subagent)
+- [DONE] Status command showing stats and top insights
+- [DONE] JSONL file storage (observations) + JSON (insights, proposals)
+- [DONE] Project scope only
 
-### Phase 2: Improve
-- CLAUDE.md managed section
-- Memory entry generation
-- Effectiveness measurement
-- User review flow (`/acumen-review`)
-- Hook generation (REVIEW tier)
+### Phase 2: Improve [DONE — partial]
+- [DONE] Tiered persistence (rules + memory, replaces CLAUDE.md managed section)
+- [DONE] Memory entry generation (via improver.py)
+- [DONE] User review flow (`/acumen-review`)
+- [DONE] Proposal generation from insights
+- [PLANNED] Effectiveness measurement (track whether improvements help)
+- [PLANNED] Hook generation (REVIEW tier)
 
-### Phase 3: Expand + Scopes
-- Skill synthesis from successful patterns
-- Global scope (cross-project learnings)
-- Session scope (real-time adaptation)
-- Scope promotion/demotion
-- Plugin packaging for easy distribution
+### Phase 3: Expand + Scopes [PLANNED]
+- [PLANNED] Skill synthesis from successful patterns
+- [PLANNED] Global scope (cross-project learnings)
+- [PLANNED] Session scope (real-time adaptation)
+- [PLANNED] Scope promotion/demotion
+- [PLANNED] Plugin registry publishing
 
-### Phase 4: Multi-Agent Support
-- Codex adapter
-- Gemini adapter
-- Generic adapter interface
-- Agent-agnostic observation format
+### Phase 4: Multi-Agent Support [DEFERRED]
+- [DEFERRED] Codex adapter
+- [DEFERRED] Gemini adapter
+- [DEFERRED] Generic adapter interface
+- [DEFERRED] Agent-agnostic observation format
 
 ---
 
@@ -590,8 +597,8 @@ acumen/                              # Plugin root (this IS the repo)
 
 ## 10. Open Questions
 
-1. **How does reflection use the LLM?** Via the host agent's plugin system (skill invocation) or a separate lightweight model?
-2. **How do we handle CLAUDE.md instruction budget?** Acumen's managed section must be concise -- what's the max line count?
-3. **Cross-project skill transfer?** If a skill works well in one project, should it auto-suggest in others?
-4. **Observation granularity?** How much detail per tool call -- just outcome, or include args/results?
-5. **Offline mode?** Should reflection work without an LLM (pure pattern matching)?
+1. ~~**How does reflection use the LLM?**~~ **[RESOLVED]** Via the host agent's subagent system. The reflector agent is dispatched by the reflect skill/command.
+2. ~~**How do we handle CLAUDE.md instruction budget?**~~ **[RESOLVED]** Acumen never modifies CLAUDE.md. Uses path-scoped rules (.claude/rules/) and memory (.claude/memory/acumen/) instead.
+3. **Cross-project skill transfer?** If a skill works well in one project, should it auto-suggest in others? [OPEN -- depends on global scope, Phase 3]
+4. ~~**Observation granularity?**~~ **[RESOLVED]** Metadata only: tool_name, outcome, error_type, error_message. No args/results (security decision).
+5. **Offline mode?** Should reflection work without an LLM (pure pattern matching)? [OPEN]

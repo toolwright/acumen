@@ -1,0 +1,153 @@
+"""Tests for hooks/session-end.sh and hooks/session-start.sh."""
+
+import json
+import os
+import subprocess
+import time
+from pathlib import Path
+from typing import Optional
+
+SESSION_END = Path(__file__).parent.parent / "hooks" / "session-end.sh"
+SESSION_START = Path(__file__).parent.parent / "hooks" / "session-start.sh"
+
+
+def run_hook(script: Path, cwd: Path, env: Optional[dict] = None) -> subprocess.CompletedProcess:
+    """Run a hook script in the given working directory."""
+    return subprocess.run(
+        ["bash", str(script)],
+        input="{}",
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        env={**os.environ, **(env or {})},
+    )
+
+
+def write_observations(cwd: Path, count: int) -> None:
+    """Write count observation lines to today's JSONL file."""
+    obs_dir = cwd / ".acumen" / "observations"
+    obs_dir.mkdir(parents=True, exist_ok=True)
+    lines = []
+    for i in range(count):
+        lines.append(json.dumps({"tool_name": f"Tool{i}", "outcome": "success"}))
+    (obs_dir / "2026-03-29.jsonl").write_text("\n".join(lines) + "\n")
+
+
+# -- session-end.sh tests --
+
+
+class TestSessionEnd:
+
+    def test_no_observations_dir_exits_clean(self, tmp_path):
+        """No .acumen/observations dir -> exit 0, no flag."""
+        result = run_hook(SESSION_END, tmp_path)
+        assert result.returncode == 0
+        assert not (tmp_path / ".acumen" / "should-reflect").exists()
+
+    def test_below_threshold_no_flag(self, tmp_path):
+        """Fewer observations than threshold -> no flag file."""
+        write_observations(tmp_path, 5)
+        result = run_hook(SESSION_END, tmp_path)
+        assert result.returncode == 0
+        assert not (tmp_path / ".acumen" / "should-reflect").exists()
+
+    def test_at_threshold_creates_flag(self, tmp_path):
+        """Exactly threshold observations -> flag file created."""
+        write_observations(tmp_path, 10)
+        result = run_hook(SESSION_END, tmp_path)
+        assert result.returncode == 0
+        assert (tmp_path / ".acumen" / "should-reflect").exists()
+
+    def test_above_threshold_creates_flag(self, tmp_path):
+        """More than threshold observations -> flag file created."""
+        write_observations(tmp_path, 15)
+        result = run_hook(SESSION_END, tmp_path)
+        assert result.returncode == 0
+        assert (tmp_path / ".acumen" / "should-reflect").exists()
+
+    def test_custom_threshold_via_env(self, tmp_path):
+        """ACUMEN_REFLECT_THRESHOLD env var overrides default."""
+        write_observations(tmp_path, 3)
+        result = run_hook(SESSION_END, tmp_path, env={"ACUMEN_REFLECT_THRESHOLD": "3"})
+        assert result.returncode == 0
+        assert (tmp_path / ".acumen" / "should-reflect").exists()
+
+    def test_only_counts_observations_newer_than_insights(self, tmp_path):
+        """Only observations newer than insights.json count."""
+        write_observations(tmp_path, 15)
+        # Create insights.json with a timestamp AFTER observations
+        insights_path = tmp_path / ".acumen" / "insights.json"
+        insights_path.write_text("[]")
+        # Touch insights.json to be newer than observations
+        time.sleep(0.1)
+        insights_path.touch()
+
+        result = run_hook(SESSION_END, tmp_path)
+        assert result.returncode == 0
+        assert not (tmp_path / ".acumen" / "should-reflect").exists()
+
+    def test_counts_new_observations_after_reflection(self, tmp_path):
+        """Observations written after insights.json are counted."""
+        # Create insights.json first
+        acumen_dir = tmp_path / ".acumen"
+        acumen_dir.mkdir(parents=True, exist_ok=True)
+        insights_path = acumen_dir / "insights.json"
+        insights_path.write_text("[]")
+        time.sleep(0.1)
+        # Now write observations (newer than insights)
+        write_observations(tmp_path, 10)
+
+        result = run_hook(SESSION_END, tmp_path)
+        assert result.returncode == 0
+        assert (tmp_path / ".acumen" / "should-reflect").exists()
+
+    def test_completes_fast(self, tmp_path):
+        """Hook completes well under 1.5s timeout."""
+        write_observations(tmp_path, 100)
+        start = time.monotonic()
+        run_hook(SESSION_END, tmp_path)
+        elapsed = time.monotonic() - start
+        assert elapsed < 1.0
+
+
+# -- session-start.sh tests --
+
+
+class TestSessionStart:
+
+    def test_no_flag_exits_clean(self, tmp_path):
+        """No flag file -> exit 0, no output."""
+        result = run_hook(SESSION_START, tmp_path)
+        assert result.returncode == 0
+        assert result.stdout.strip() == ""
+
+    def test_flag_present_outputs_context(self, tmp_path):
+        """Flag file exists -> outputs context with reflect + auto-apply instructions."""
+        flag = tmp_path / ".acumen" / "should-reflect"
+        flag.parent.mkdir(parents=True, exist_ok=True)
+        flag.touch()
+
+        result = run_hook(SESSION_START, tmp_path)
+        assert result.returncode == 0
+        assert "/acumen-reflect" in result.stdout
+        assert "auto_apply_proposals" in result.stdout
+        assert "/acumen-review" in result.stdout
+
+    def test_flag_removed_after_read(self, tmp_path):
+        """Flag file is deleted after being consumed."""
+        flag = tmp_path / ".acumen" / "should-reflect"
+        flag.parent.mkdir(parents=True, exist_ok=True)
+        flag.touch()
+
+        run_hook(SESSION_START, tmp_path)
+        assert not flag.exists()
+
+    def test_second_run_no_output(self, tmp_path):
+        """After flag consumed, second run produces no output."""
+        flag = tmp_path / ".acumen" / "should-reflect"
+        flag.parent.mkdir(parents=True, exist_ok=True)
+        flag.touch()
+
+        run_hook(SESSION_START, tmp_path)
+        result = run_hook(SESSION_START, tmp_path)
+        assert result.stdout.strip() == ""

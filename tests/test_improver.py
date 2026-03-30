@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from lib.improver import generate_proposals, read_proposals, write_proposal, apply_proposal
+from lib.improver import generate_proposals, read_proposals, write_proposal, apply_proposal, auto_apply_proposals
 
 
 def _insight(description="Bash fails on test commands", category="correction", evidence_count=5, **kw):
@@ -131,7 +131,7 @@ def test_apply_memory_proposal(tmp_path):
 
 
 def test_apply_proposal_refuses_non_approved(tmp_path):
-    """Refuses to apply proposals that aren't approved."""
+    """Refuses to apply proposals that aren't approved or auto-applied."""
     proposal = {
         "description": "test",
         "target": "rule",
@@ -143,6 +143,19 @@ def test_apply_proposal_refuses_non_approved(tmp_path):
         assert False, "Should have raised ValueError"
     except ValueError as e:
         assert "approved" in str(e).lower()
+
+
+def test_apply_proposal_accepts_auto_applied(tmp_path):
+    """Auto-applied status is accepted by apply_proposal."""
+    proposal = {
+        "description": "Auto test rule",
+        "target": "rule",
+        "status": "auto-applied",
+        "rule_text": "Auto-applied rule content.",
+    }
+    path = apply_proposal(tmp_path, proposal)
+    assert path.exists()
+    assert "Auto-applied" in path.read_text()
 
 
 def test_apply_rule_namespacing(tmp_path):
@@ -187,3 +200,54 @@ def test_apply_multiple_proposals_unique_files(tmp_path):
 
     rules_dir = tmp_path / ".claude" / "rules"
     assert len(list(rules_dir.glob("acumen-*.md"))) == 2
+
+
+# -- auto_apply_proposals --
+
+
+def test_auto_apply_sets_status_and_writes_files(tmp_path):
+    """Auto-apply sets status to auto-applied and creates files."""
+    proposals = [
+        {"description": "Use python3", "target": "rule", "status": "proposed", "rule_text": "Use python3."},
+        {"description": "Bash is common", "target": "memory", "status": "proposed", "rule_text": "Bash is common."},
+    ]
+    applied = auto_apply_proposals(tmp_path, proposals)
+
+    assert len(applied) == 2
+    assert proposals[0]["status"] == "auto-applied"
+    assert proposals[1]["status"] == "auto-applied"
+    assert (tmp_path / ".claude" / "rules").exists()
+    assert (tmp_path / ".claude" / "memory" / "acumen").exists()
+
+
+def test_auto_apply_skips_non_proposed(tmp_path):
+    """Auto-apply skips proposals that already have a terminal status."""
+    proposals = [
+        {"description": "Already done", "target": "rule", "status": "approved", "rule_text": "Done."},
+        {"description": "Rejected one", "target": "rule", "status": "rejected", "rule_text": "Nope."},
+        {"description": "New one", "target": "rule", "status": "proposed", "rule_text": "New."},
+    ]
+    applied = auto_apply_proposals(tmp_path, proposals)
+
+    assert len(applied) == 1
+    assert applied[0]["description"] == "New one"
+    # Original statuses unchanged for non-proposed
+    assert proposals[0]["status"] == "approved"
+    assert proposals[1]["status"] == "rejected"
+
+
+def test_auto_apply_empty_list(tmp_path):
+    """Auto-apply with no proposals returns empty list."""
+    assert auto_apply_proposals(tmp_path, []) == []
+
+
+def test_auto_apply_returns_paths(tmp_path):
+    """Applied entries include the file path."""
+    proposals = [
+        {"description": "Test path", "target": "rule", "status": "proposed", "rule_text": "Content."},
+    ]
+    applied = auto_apply_proposals(tmp_path, proposals)
+    assert len(applied) == 1
+    assert "path" in applied[0]
+    from pathlib import Path
+    assert Path(applied[0]["path"]).exists()

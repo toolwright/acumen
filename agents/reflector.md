@@ -113,3 +113,30 @@ Optional fields:
 - If there are no meaningful patterns, report that clearly and write zero insights.
 - Do not read file contents or tool inputs. You only have metadata + error messages.
 - After writing insights, print a summary of what you found.
+
+## Proposal Generation
+
+After insights are written, generate improvement proposals from them. Run:
+
+```bash
+python3 -c "
+import sys, json
+sys.path.insert(0, 'lib')
+from store import resolve_scope_path, read_insights
+from improver import generate_proposals, write_proposal
+
+scope = resolve_scope_path('project')
+insights = read_insights(scope)
+if not insights:
+    print('No insights to generate proposals from.')
+    sys.exit(0)
+
+proposals = generate_proposals(insights)
+for p in proposals:
+    write_proposal(scope, p)
+
+print(json.dumps({'proposals_generated': len(proposals), 'top': [p['description'] for p in proposals[:5]]}, indent=2))
+"
+```
+
+This ensures a single `/acumen-reflect` invocation produces both insights AND proposals.
