@@ -17,7 +17,7 @@ OBSERVE ──> LEARN ──> IMPROVE
   └─ Metadata only (tool_name, outcome, error_type)
 ```
 
-Every tool call is observed. When enough data accumulates, Acumen flags that reflection is due. You run `/acumen-reflect`, a subagent analyzes the observations, extracts insights, and generates improvement proposals. You review and approve them with `/acumen-review`. Approved rules are written to `.claude/rules/` and `.claude/memory/acumen/` where Claude Code picks them up automatically.
+Every tool call is observed. When enough data accumulates, Acumen flags that reflection is due. At next session start, the agent automatically reflects, extracts insights, and applies improvements -- then notifies you. Run `/acumen-review` to see what was applied or revert anything you disagree with.
 
 ## Installation
 
@@ -57,20 +57,20 @@ Lists all extracted insights ranked by confidence and impact score.
 
 ### `/acumen-review`
 
-Reviews pending improvement proposals. For each proposal, you approve or reject. Approved proposals become:
+Shows all auto-applied improvements. Revert any you disagree with by number. Applied improvements become:
 - **Rules** (`.claude/rules/acumen-*.md`) -- corrections like "use python3 not python"
 - **Memory** (`.claude/memory/acumen/*.md`) -- general insights and preferences
 
 ## Auto-Reflection
 
-Acumen uses a flag-and-defer mechanism -- no LLM calls happen automatically:
+Acumen uses a flag-and-defer mechanism -- no LLM calls happen in the hot path:
 
 1. **SessionEnd hook** counts new observations since last reflection
 2. If the count exceeds the threshold (default: 10), it writes a `.acumen/should-reflect` flag
-3. **SessionStart hook** checks for the flag. If present, it injects a message suggesting you run `/acumen-reflect`
-4. You decide when to reflect. The agent never runs reflection without you.
+3. **SessionStart hook** checks for the flag. If present, it injects context telling the agent to: (a) run reflection, (b) auto-apply all proposals, (c) notify you what changed
+4. Improvements are applied at session start, before you say anything
 
-Set `ACUMEN_REFLECT_THRESHOLD` to change the observation threshold.
+Run `/acumen-review` afterward to see what changed or undo anything. Set `ACUMEN_REFLECT_THRESHOLD` to change the observation threshold.
 
 ## What It Observes
 
@@ -123,7 +123,7 @@ acumen/
 **Data storage:**
 - `.acumen/observations/YYYY-MM-DD.jsonl` -- append-only observation logs
 - `.acumen/insights.json` -- extracted insights with scores
-- `.acumen/proposals.json` -- improvement proposals pending review
+- `.acumen/proposals.json` -- improvement proposals with status (proposed/auto-applied/reverted)
 
 ## Research Grounding
 
@@ -138,7 +138,7 @@ Full survey and citations in [findings.md](findings.md). Design specification in
 
 ## Safety
 
-- **Human-in-the-loop**: All improvement proposals require explicit approval via `/acumen-review`
+- **Reviewable**: All auto-applied improvements are visible via `/acumen-review` and can be instantly reverted
 - **Metadata only**: Never captures tool inputs, file contents, or secrets
 - **Namespaced writes**: Only writes to `acumen-*` prefixed files in `.claude/rules/` and `.claude/memory/acumen/`
 - **Never modifies CLAUDE.md**: That's your document
