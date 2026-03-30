@@ -9,6 +9,93 @@ from typing import Optional
 
 SESSION_END = Path(__file__).parent.parent / "hooks" / "session-end.sh"
 SESSION_START = Path(__file__).parent.parent / "hooks" / "session-start.sh"
+INSTRUCTIONS_LOADED = Path(__file__).parent.parent / "hooks" / "instructions-loaded.sh"
+STOP_FAILURE = Path(__file__).parent.parent / "hooks" / "stop-failure.sh"
+
+
+def run_instructions_loaded(cwd: Path, stdin_data: dict) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["bash", str(INSTRUCTIONS_LOADED)],
+        input=json.dumps(stdin_data),
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    )
+
+
+def run_stop_failure(cwd: Path, stdin_data: dict) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["bash", str(STOP_FAILURE)],
+        input=json.dumps(stdin_data),
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    )
+
+
+def test_instructions_loaded_records_acumen_rules(tmp_path):
+    """Records acumen-* rules that entered context."""
+    (tmp_path / ".acumen").mkdir()
+    result = run_instructions_loaded(tmp_path, {
+        "session_id": "sess123",
+        "files": [".claude/rules/acumen-use-python3.md", "CLAUDE.md"],
+    })
+    assert result.returncode == 0
+    records = [json.loads(l) for l in
+               (tmp_path / ".acumen" / "rule-activity.jsonl").read_text().splitlines()
+               if l.strip()]
+    assert len(records) == 1
+    assert "use-python3" in records[0]["rules_loaded"]
+
+
+def test_instructions_loaded_skips_non_acumen_files(tmp_path):
+    """No record written when no acumen-* rules are loaded."""
+    (tmp_path / ".acumen").mkdir()
+    result = run_instructions_loaded(tmp_path, {
+        "session_id": "sess456",
+        "files": ["CLAUDE.md", ".claude/rules/custom-rule.md"],
+    })
+    assert result.returncode == 0
+    activity = tmp_path / ".acumen" / "rule-activity.jsonl"
+    if activity.exists():
+        records = [json.loads(l) for l in activity.read_text().splitlines() if l.strip()]
+        assert not any(r.get("rules_loaded") for r in records)
+
+
+def test_instructions_loaded_fails_open_on_bad_json(tmp_path):
+    """Malformed input -> exit 0."""
+    result = subprocess.run(
+        ["bash", str(INSTRUCTIONS_LOADED)],
+        input="INVALID JSON",
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0
+
+
+def test_stop_failure_writes_session_marker(tmp_path):
+    """StopFailure hook writes record to .acumen/stop-failures.jsonl."""
+    (tmp_path / ".acumen").mkdir()
+    result = run_stop_failure(tmp_path, {"session_id": "sess789", "error": "API timeout"})
+    assert result.returncode == 0
+    records = [json.loads(l) for l in
+               (tmp_path / ".acumen" / "stop-failures.jsonl").read_text().splitlines()
+               if l.strip()]
+    assert len(records) == 1
+    assert records[0]["session_id"] == "sess789"
+
+
+def test_stop_failure_fails_open(tmp_path):
+    """Malformed input -> exit 0."""
+    result = subprocess.run(
+        ["bash", str(STOP_FAILURE)],
+        input="INVALID JSON",
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0
 
 
 def run_hook(script: Path, cwd: Path, env: Optional[dict] = None) -> subprocess.CompletedProcess:
