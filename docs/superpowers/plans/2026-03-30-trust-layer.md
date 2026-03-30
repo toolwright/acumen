@@ -1394,7 +1394,7 @@ description: Show effectiveness verdicts for applied Acumen rules, with eval con
 
 Run the following to display effectiveness of applied rules:
 
-` `` `python
+```python
 python3 -c "
 import sys; sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/lib')
 from pathlib import Path
@@ -1423,7 +1423,7 @@ if any(p.get('effectiveness') == 'pending' for p in applied):
     print()
     print('  [?] = pending (need 5+ observations before and after)')
 "
-` `` `
+```
 ```
 
 - [ ] **Step 2: Test the command manually in the acumen repo**
@@ -1465,6 +1465,180 @@ git commit -m "feat: add /acumen-effectiveness command -- v0.3 trust layer compl
 
 ---
 
+## Task 11: Rule Retirement (P2.4)
+
+**Goal:** Automatically retire applied rules that are demonstrably harmful or persistently neutral, preventing rule accumulation.
+
+**Files:**
+- Modify: `lib/improver.py`
+- Modify: `hooks/session-end.sh`
+- Modify: `tests/test_improver.py`
+
+- [ ] **Step 1: Write failing tests**
+
+Add to `tests/test_improver.py`:
+
+```python
+from improver import retire_ineffective_proposals
+
+
+def _make_applied_proposal(effectiveness: str, days_ago: float) -> dict:
+    from datetime import datetime, timezone, timedelta
+    applied_at = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+    return {
+        "description": f"Do something useful with {effectiveness}",
+        "rule_text": "# rule",
+        "target": "rule",
+        "status": "auto-applied",
+        "applied_at": applied_at,
+        "effectiveness": effectiveness,
+    }
+
+
+def test_retire_harmful_rule_after_threshold(tmp_path):
+    """Harmful rule older than min_days_harmful is retired and rule file deleted."""
+    rules_dir = tmp_path / ".claude" / "rules"
+    rules_dir.mkdir(parents=True)
+    p = _make_applied_proposal("harmful", days_ago=8)
+    slug = re.sub(r"[^a-z0-9]+", "-", p["description"].lower()).strip("-")[:40]
+    rule_file = rules_dir / f"acumen-{slug}.md"
+    rule_file.write_text("# rule")
+
+    retired = retire_ineffective_proposals([p], tmp_path)
+
+    assert len(retired) == 1
+    assert p["status"] == "retired"
+    assert not rule_file.exists()
+
+
+def test_skip_harmful_rule_too_recent(tmp_path):
+    """Harmful rule applied only 3 days ago is kept."""
+    p = _make_applied_proposal("harmful", days_ago=3)
+    retired = retire_ineffective_proposals([p], tmp_path)
+    assert len(retired) == 0
+    assert p["status"] == "auto-applied"
+
+
+def test_retire_neutral_rule_after_threshold(tmp_path):
+    """Neutral rule older than min_days_neutral (30) is retired."""
+    p = _make_applied_proposal("neutral", days_ago=31)
+    retired = retire_ineffective_proposals([p], tmp_path)
+    assert len(retired) == 1
+    assert p["status"] == "retired"
+
+
+def test_skip_pending_rule(tmp_path):
+    """Rule with no effectiveness verdict (pending) is never retired."""
+    p = _make_applied_proposal("pending", days_ago=90)
+    p.pop("effectiveness")  # simulate pending — no key
+    retired = retire_ineffective_proposals([p], tmp_path)
+    assert len(retired) == 0
+
+
+def test_skip_effective_rule(tmp_path):
+    """Effective rule is never retired regardless of age."""
+    p = _make_applied_proposal("effective", days_ago=90)
+    retired = retire_ineffective_proposals([p], tmp_path)
+    assert len(retired) == 0
+```
+
+- [ ] **Step 2: Run tests — verify they fail**
+
+```bash
+python3 -m pytest tests/test_improver.py::test_retire_harmful_rule_after_threshold -v
+```
+
+Expected: ImportError on `retire_ineffective_proposals`.
+
+- [ ] **Step 3: Add `retire_ineffective_proposals` to `lib/improver.py`**
+
+Append to `lib/improver.py`:
+
+```python
+def retire_ineffective_proposals(
+    proposals: list[dict],
+    project_root: Path,
+    min_days_harmful: int = 7,
+    min_days_neutral: int = 30,
+) -> list[dict]:
+    """Retire applied rules that are harmful or persistently neutral.
+
+    Deletes the .claude/rules/acumen-{slug}.md file and sets status='retired'.
+    Rules with no effectiveness verdict (pending) are never retired.
+    Returns list of retired proposals.
+    """
+    now = datetime.now(timezone.utc)
+    retired = []
+    for p in proposals:
+        if p.get("status") not in ("auto-applied", "approved"):
+            continue
+        effectiveness = p.get("effectiveness")
+        applied_at_str = p.get("applied_at", "")
+        try:
+            applied_dt = datetime.fromisoformat(applied_at_str)
+            age_days = (now - applied_dt).total_seconds() / 86400
+        except (ValueError, TypeError):
+            continue
+        if effectiveness == "harmful" and age_days >= min_days_harmful:
+            pass  # retire
+        elif effectiveness == "neutral" and age_days >= min_days_neutral:
+            pass  # retire
+        else:
+            continue
+        slug = _slugify(p["description"])
+        rule_path = project_root / ".claude" / "rules" / f"acumen-{slug}.md"
+        rule_path.unlink(missing_ok=True)
+        p["status"] = "retired"
+        retired.append(p)
+    return retired
+```
+
+- [ ] **Step 4: Run tests — verify they pass**
+
+```bash
+python3 -m pytest tests/test_improver.py -v
+```
+
+Expected: All tests pass including the 5 new retirement tests.
+
+- [ ] **Step 5: Add retirement call to `hooks/session-end.sh`**
+
+In `hooks/session-end.sh`, replace the final `exit 0` with:
+
+```bash
+# Retire ineffective rules (fail-open, runs after reflection flag decision)
+python3 -c "
+import sys, json; sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/lib')
+from pathlib import Path
+from store import resolve_scope_path
+from improver import read_proposals, retire_ineffective_proposals
+scope = resolve_scope_path('project')
+proposals = read_proposals(scope)
+retired = retire_ineffective_proposals(proposals, Path('.'))
+if retired:
+    (scope / 'proposals.json').write_text(json.dumps(proposals, indent=2))
+" 2>/dev/null || true
+
+exit 0
+```
+
+- [ ] **Step 6: Run full test suite**
+
+```bash
+python3 -m pytest tests/ -v
+```
+
+Expected: All tests pass.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add lib/improver.py tests/test_improver.py hooks/session-end.sh
+git commit -m "feat: rule retirement for harmful/neutral ineffective rules (P2.4)"
+```
+
+---
+
 ## Final: Integration Verification + CAPABILITIES.md
 
 - [ ] **Step 1: Test stop gate in a real session**
@@ -1497,6 +1671,7 @@ Add entries for new capabilities:
 - `CAP-TRUST-003`: StopFailure hook — `hooks/stop-failure.sh`
 - `CAP-EVAL-001`: Evaluation signal detection and running — `lib/evaluator.py`
 - `CAP-IMP-007`: Effectiveness measurement with eval confidence — `lib/improver.py:measure_effectiveness_with_confidence`
+- `CAP-IMP-008`: Rule retirement for harmful/neutral rules — `lib/improver.py:retire_ineffective_proposals`
 
 ```bash
 git add CAPABILITIES.md
