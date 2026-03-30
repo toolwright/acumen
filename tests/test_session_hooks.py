@@ -169,3 +169,53 @@ class TestSessionStart:
         result = run_hook(SESSION_START, tmp_path)
         assert result.returncode == 0
         assert result.stdout.strip() == ""
+
+    def test_session_start_creates_eval_config(self, tmp_path):
+        """Session start creates .acumen/eval-config.json when pyproject.toml present."""
+        (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+        plugin_root = str(Path(__file__).parent.parent)
+        result = run_hook(SESSION_START, tmp_path, env={"CLAUDE_PLUGIN_ROOT": plugin_root})
+        assert result.returncode == 0
+        assert (tmp_path / ".acumen" / "eval-config.json").exists()
+
+    def test_session_start_eval_config_has_required_fields(self, tmp_path):
+        """eval-config.json written by session-start has tier and confidence fields."""
+        (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+        plugin_root = str(Path(__file__).parent.parent)
+        run_hook(SESSION_START, tmp_path, env={"CLAUDE_PLUGIN_ROOT": plugin_root})
+        data = json.loads((tmp_path / ".acumen" / "eval-config.json").read_text())
+        assert "tier" in data
+        assert data["confidence"] in ("HIGH", "MEDIUM", "LOW")
+
+    def test_session_start_captures_baseline_when_fast(self, tmp_path):
+        """Session start captures baseline pass/fail counts when tests are fast."""
+        (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+        test_dir = tmp_path / "tests"
+        test_dir.mkdir()
+        (test_dir / "test_pass.py").write_text("def test_ok():\n    assert True\n")
+        plugin_root = str(Path(__file__).parent.parent)
+        run_hook(SESSION_START, tmp_path, env={"CLAUDE_PLUGIN_ROOT": plugin_root})
+        baseline_path = tmp_path / ".acumen" / "session-baseline.json"
+        assert baseline_path.exists()
+        data = json.loads(baseline_path.read_text())
+        assert "pass_count" in data
+        assert "fail_count" in data
+        assert data["pass_count"] >= 1
+        assert data["fail_count"] == 0
+
+    def test_session_start_skips_baseline_rebuild_within_24h(self, tmp_path):
+        """Existing fresh eval-config.json is not rebuilt within 24h."""
+        import json as _json
+        acumen_dir = tmp_path / ".acumen"
+        acumen_dir.mkdir()
+        config_data = {
+            "tier": 3, "confidence": "LOW", "test_cmd": None,
+            "lint_cmd": None, "test_latency_ms": 0, "fast_for_stop_gate": False
+        }
+        (acumen_dir / "eval-config.json").write_text(_json.dumps(config_data))
+        plugin_root = str(Path(__file__).parent.parent)
+        result = run_hook(SESSION_START, tmp_path, env={"CLAUDE_PLUGIN_ROOT": plugin_root})
+        assert result.returncode == 0
+        # Config should not change (tier still 3, no rebuild)
+        data = _json.loads((acumen_dir / "eval-config.json").read_text())
+        assert data["tier"] == 3

@@ -47,4 +47,38 @@ if [ -d "$rules_dir" ]; then
   fi
 fi
 
+# --- Job 3: Detect evaluation signal + capture session baseline ---
+# One Python call: build/load eval config, then run baseline if tests are fast.
+# Rebuilds config once per 24h. Fail-open.
+plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
+if [ -n "$plugin_root" ] && [ -f "$plugin_root/lib/evaluator.py" ]; then
+  python3 -c "
+import sys, json, time, tempfile
+sys.path.insert(0, '$plugin_root/lib')
+try:
+    from evaluator import build_eval_config, save_eval_config, load_eval_config, run_eval_signal
+    from pathlib import Path
+    project_root = Path('.')
+    config_path = project_root / '.acumen' / 'eval-config.json'
+    should_rebuild = not config_path.exists()
+    if not should_rebuild:
+        should_rebuild = time.time() - config_path.stat().st_mtime > 86400
+    if should_rebuild:
+        config = build_eval_config(project_root)
+        save_eval_config(config, project_root)
+    else:
+        config = load_eval_config(project_root)
+    if config and config.fast_for_stop_gate:
+        result = run_eval_signal(config, project_root)
+        acumen_dir = project_root / '.acumen'
+        acumen_dir.mkdir(parents=True, exist_ok=True)
+        baseline = json.dumps({'pass_count': result.pass_count, 'fail_count': result.fail_count})
+        fd, tmp = tempfile.mkstemp(dir=str(acumen_dir), suffix='.tmp')
+        with open(fd, 'w') as f: f.write(baseline)
+        Path(tmp).replace(acumen_dir / 'session-baseline.json')
+except Exception:
+    pass
+" 2>/dev/null || true
+fi
+
 exit 0
