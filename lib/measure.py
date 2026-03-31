@@ -1,4 +1,4 @@
-"""Failure recurrence tracking: measure whether applied rules reduce errors.
+"""Effectiveness tracking: failure recurrence + convention adherence.
 
 Computes per-rule effectiveness with explicit denominators. Stdlib only.
 """
@@ -6,12 +6,14 @@ Computes per-rule effectiveness with explicit denominators. Stdlib only.
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 MIN_EVENTS = 50
 MIN_AFTER_DAYS = 7
+MIN_CONVENTION_OPS = 20
 
 
 @dataclass
@@ -92,6 +94,125 @@ def measure_effectiveness(
         adherence_rate=None,
         verdict=verdict,
         retained_at_2_weeks=retained,
+    )
+
+
+def _extract_convention_value(rule: dict) -> str:
+    """Extract the dominant_value from a convention rule's action text."""
+    action = rule.get("action", "")
+    # "Use pytest for running tests" → "pytest"
+    m = re.match(r"Use (\S+) for running tests", action)
+    if m:
+        return m.group(1)
+    # "New Python files use snake_case naming" → "snake_case"
+    m = re.match(r"New Python files use (\S+) naming", action)
+    if m:
+        return m.group(1)
+    # "Test files go in tests_root directory pattern" → "tests_root"
+    m = re.match(r"Test files go in (\S+) directory pattern", action)
+    if m:
+        return m.group(1)
+    # Fallback: try to extract from pattern field
+    # "test_command: pytest (95%)" → "pytest"
+    pattern = rule.get("pattern", "")
+    m = re.match(r"\w+: (\S+)", pattern)
+    return m.group(1) if m else ""
+
+
+def _classify_naming(basename: str) -> str | None:
+    stem = basename.rsplit(".", 1)[0]
+    if not stem:
+        return None
+    if re.match(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$", stem):
+        return "snake_case"
+    if re.match(r"^[a-z][a-zA-Z0-9]*$", stem) and any(c.isupper() for c in stem):
+        return "camelCase"
+    return None
+
+
+def _is_test_file(basename: str) -> bool:
+    stem = basename.rsplit(".", 1)[0]
+    return stem.startswith("test_") or stem.endswith("_test")
+
+
+def _compute_convention_verdict(adherence: float) -> str:
+    if adherence >= 80.0:
+        return "effective"
+    if adherence >= 50.0:
+        return "neutral"
+    return "harmful"
+
+
+def measure_convention_adherence(
+    rule: dict,
+    observations: list[dict],
+    after_days: int,
+) -> EffectivenessRecord:
+    """Measure whether a convention rule is being followed.
+
+    Denominator: only relevant operations for the convention's pattern_kind.
+    Min 20 relevant operations and 7 days for verdict.
+    """
+    pattern_kind = rule.get("pattern_kind", "")
+    expected_value = _extract_convention_value(rule)
+    sessions = set()
+
+    relevant = 0
+    adherent = 0
+
+    for obs in observations:
+        if obs.get("outcome") != "success":
+            continue
+        sid = obs.get("session_id", "")
+
+        if pattern_kind == "test_command":
+            if (obs.get("tool_name") != "Bash"
+                    or obs.get("command_family") != "test"
+                    or not obs.get("command_signature")):
+                continue
+            relevant += 1
+            sessions.add(sid)
+            if obs["command_signature"] == expected_value:
+                adherent += 1
+
+        elif pattern_kind == "file_naming":
+            if (obs.get("tool_name") != "Write"
+                    or obs.get("write_kind") != "create"
+                    or not obs.get("file_basename", "").endswith(".py")):
+                continue
+            style = _classify_naming(obs["file_basename"])
+            if not style:
+                continue
+            relevant += 1
+            sessions.add(sid)
+            if style == expected_value:
+                adherent += 1
+
+        elif pattern_kind == "test_placement":
+            if (obs.get("tool_name") != "Write"
+                    or obs.get("write_kind") != "create"
+                    or not obs.get("file_basename")
+                    or not _is_test_file(obs["file_basename"])
+                    or not obs.get("path_pattern")):
+                continue
+            relevant += 1
+            sessions.add(sid)
+            if obs["path_pattern"] == expected_value:
+                adherent += 1
+
+    adherence = (adherent / relevant * 100) if relevant > 0 else 0.0
+    insufficient = relevant < MIN_CONVENTION_OPS or after_days < MIN_AFTER_DAYS
+    verdict = "pending" if insufficient else _compute_convention_verdict(adherence)
+
+    return EffectivenessRecord(
+        rule_id=rule["id"],
+        applied_at=rule.get("applied", ""),
+        sessions_observed=len(sessions),
+        target_pattern_before=0.0,
+        target_pattern_after=0.0,
+        adherence_rate=adherence,
+        verdict=verdict,
+        retained_at_2_weeks=True if after_days >= 14 else None,
     )
 
 
