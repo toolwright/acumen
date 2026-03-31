@@ -14,7 +14,7 @@ from improver import read_proposals, measure_effectiveness_with_confidence
 
 scope = resolve_scope_path('project')
 proposals = read_proposals(scope)
-observations = read_observations(scope, days=30)
+observations, _ = read_observations(scope, days=30)
 changed = measure_effectiveness_with_confidence(proposals, observations, Path('.'))
 
 applied = [p for p in proposals if p.get('status') in ('auto-applied', 'approved')]

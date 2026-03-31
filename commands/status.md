@@ -1,36 +1,63 @@
 ---
 name: acumen-status
-description: Show Acumen observation stats, error trends, and top insights.
+description: Quick health overview — observations, rules, proposals, effectiveness, data quality.
 ---
 
 # Acumen Status
 
-Show current observation and insight stats.
+Show a quick health overview of Acumen's current state.
 
 ## What to do
 
-Run the formatter to display status:
+Run the following to display status:
 
 ```bash
 python3 -c "
-import sys
+import sys, json
 sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/lib')
 from pathlib import Path
-from store import resolve_scope_path, read_observations, read_insights
-from formatter import format_status
+from store import resolve_scope_path, read_observations
+from apply import read_rules
+from measure import read_effectiveness
 
 scope = resolve_scope_path('project')
-observations = read_observations(scope)
-insights = read_insights(scope)
 
-last_reflection = None
-insights_path = scope / 'insights.json'
-if insights_path.exists():
-    from datetime import datetime
-    mtime = insights_path.stat().st_mtime
-    last_reflection = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
+# 1. Observations
+observations, corruption_count = read_observations(scope)
+index_path = scope / 'observations' / 'index.json'
+session_count = 0
+if index_path.exists():
+    try:
+        session_count = len(json.loads(index_path.read_text()))
+    except (json.JSONDecodeError, OSError):
+        pass
 
-print(format_status(observations, insights, last_reflection, project_root=Path('.')))
+# 2. Rules
+rules = read_rules(scope)
+active = [r for r in rules if r.get('status') == 'applied']
+pending = [r for r in rules if r.get('status') == 'pending']
+kinds = sorted({r.get('pattern_kind', 'unknown') for r in active}) if active else []
+
+# 3. Effectiveness
+verdicts = read_effectiveness(scope)
+
+# Display
+print('ACUMEN STATUS')
+print()
+print(f'  Observations: {len(observations)} events across {session_count} sessions (Tier 0.5)')
+if corruption_count:
+    print(f'  Data quality: {corruption_count} corrupted line(s) skipped')
+print(f'  Active rules: {len(active)}' + (f' ({', '.join(kinds)})' if kinds else ''))
+print(f'  Pending proposals: {len(pending)}')
+
+if verdicts:
+    icons = {'effective': '+', 'neutral': '~', 'harmful': '-', 'pending': '?'}
+    print(f'  Effectiveness ({len(verdicts)} measured):')
+    for v in verdicts:
+        icon = icons.get(v.verdict, '?')
+        print(f'    [{icon}] {v.rule_id}: {v.verdict} ({v.target_pattern_before:.1f} -> {v.target_pattern_after:.1f} per 100)')
+else:
+    print('  Effectiveness: no measurements yet')
 "
 ```
 

@@ -1,33 +1,59 @@
 ---
 name: acumen-review
-description: View auto-applied Acumen improvements, revert any you disagree with, or promote proven rules to global scope.
+description: Review pending Acumen proposals — approve to apply as rules, reject to dismiss, or revert applied rules.
 ---
 
 # Acumen Review
 
-View what Acumen has auto-applied, revert anything you disagree with, and promote proven environment-level rules to global scope (applies across all your projects).
+Review pending proposals, approve or reject them, and manage applied rules.
 
 ## What to do
 
-1. List all applied improvements:
+### 1. Load pending proposals
 
 ```bash
 python3 -c "
 import sys, json
 sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/lib')
 from store import resolve_scope_path
-from improver import read_proposals
-from formatter import format_review
+from apply import read_rules
 
 scope = resolve_scope_path('project')
-proposals = read_proposals(scope)
-print(format_review(proposals))
+rules = read_rules(scope)
+pending = [r for r in rules if r['status'] == 'proposed']
+applied = [r for r in rules if r['status'] == 'applied']
+
+if not pending and not applied:
+    print('NO_DATA')
+elif not pending:
+    print('NO_PENDING')
+    print(f'{len(applied)} rules currently applied.')
+else:
+    print(f'PENDING:{len(pending)}')
+    for i, r in enumerate(pending, 1):
+        conf = f\"{r['confidence']:.0%}\"
+        print(f\"  {i}. [{r['pattern_kind']}] {r['action']}\")
+        print(f\"     Evidence: {r['evidence_summary']} (confidence: {conf})\")
+        print()
+    if applied:
+        print(f'{len(applied)} rules currently applied.')
 "
 ```
 
-2. Show the output to the user. Ask: **Would you like to (a) revert any of these, (b) promote any global candidates to apply across all projects, or (c) neither?**
+### 2. Handle results
 
-3. For each improvement the user wants to revert:
+**If output is `NO_DATA`:**
+> No proposals or applied rules yet. Run `/acumen-reflect` to analyze recent sessions and generate proposals.
+
+**If output is `NO_PENDING`:**
+Show the applied rule count, then ask: **Would you like to revert any applied rules?**
+
+**If output starts with `PENDING`:**
+Show the proposals to the user exactly as printed. For each pending proposal, ask the user: **Approve or reject?**
+
+### 3. Apply approved proposals
+
+For each proposal the user approves:
 
 ```bash
 python3 -c "
@@ -35,62 +61,72 @@ import sys, json
 sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/lib')
 from pathlib import Path
 from store import resolve_scope_path
-from improver import read_proposals, revert_proposal
+from apply import read_rules, apply_rule
 
 scope = resolve_scope_path('project')
-proposals = read_proposals(scope)
+rules = read_rules(scope)
+pending = [r for r in rules if r['status'] == 'proposed']
 
-# Revert the Nth proposal (1-indexed, from the applied list)
-n = int(sys.argv[1])
-applied = [p for p in proposals if p.get('status') in ('approved', 'auto-applied')]
-msg = revert_proposal(Path('.'), applied[n - 1])
-print(msg)
-
-# Write updated proposals back
-import tempfile
-fd, tmp = tempfile.mkstemp(dir=scope, suffix='.tmp')
-with open(fd, 'w') as f:
-    json.dump(proposals, f, indent=2)
-Path(tmp).replace(scope / 'proposals.json')
+rule = pending[int(sys.argv[1]) - 1]
+path = apply_rule(scope, rule, Path('.'))
+print(f'Applied: {path}')
 " '$NUMBER'
 ```
 
-4. Report what was reverted.
+### 4. Reject declined proposals
 
-## Promoting a rule to global scope
-
-For each rule the user wants to promote globally:
+For each proposal the user rejects:
 
 ```bash
 python3 -c "
-import sys, json, tempfile
+import sys, json
+sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/lib')
+from store import resolve_scope_path
+from apply import read_rules, reject_rule
+
+scope = resolve_scope_path('project')
+rules = read_rules(scope)
+pending = [r for r in rules if r['status'] == 'proposed']
+
+rule_id = pending[int(sys.argv[1]) - 1]['id']
+reject_rule(scope, rule_id)
+print(f'Rejected proposal {sys.argv[1]}.')
+" '$NUMBER'
+```
+
+### 5. Revert applied rules
+
+If the user wants to revert an applied rule:
+
+```bash
+python3 -c "
+import sys
 sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/lib')
 from pathlib import Path
 from store import resolve_scope_path
-from improver import read_proposals, promote_to_global
+from apply import read_rules, revert_rule
 
 scope = resolve_scope_path('project')
-proposals = read_proposals(scope)
+rules = read_rules(scope)
+applied = [r for r in rules if r['status'] == 'applied']
 
-# Promote the global candidate by description match
-desc = sys.argv[1]
-for p in proposals:
-    if p['description'] == desc and p.get('scope') == 'global_candidate':
-        path = promote_to_global(p)
-        print(f'Promoted to global: {path}')
-        print('This rule will now apply in all your projects.')
-        break
-
-# Write updated proposals back
-fd, tmp = tempfile.mkstemp(dir=scope, suffix='.tmp')
-with open(fd, 'w') as f:
-    json.dump(proposals, f, indent=2)
-Path(tmp).replace(scope / 'proposals.json')
-" '$DESCRIPTION'
+rule = applied[int(sys.argv[1]) - 1]
+ok = revert_rule(scope, rule['id'], Path('.'))
+if ok:
+    print(f\"Reverted: {rule['action']}\")
+else:
+    print('Rule file not found — may have been manually removed.')
+" '$NUMBER'
 ```
 
-## When there are no applied improvements
+### 6. Show summary
 
-If no applied improvements exist, tell the user:
+After processing all decisions, show:
 
-> No applied improvements yet. Run `/acumen-reflect` to analyze recent sessions -- improvements will be auto-applied automatically.
+> **N approved, M rejected, K remaining**
+
+## When there are no proposals
+
+If `.acumen/rules.json` doesn't exist or has no proposals, tell the user:
+
+> No proposals yet. Run `/acumen-reflect` to analyze recent sessions and generate proposals.
