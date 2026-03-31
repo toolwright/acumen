@@ -31,3 +31,11 @@ spec*.md
 TODOS.md
 progress.md
 task_plan.md
+
+# Dev-local artifacts (not part of the product)
+CLAUDE.md
+CAPABILITIES.md
+docs/
+.claude/
+.ruff_cache/
+.venv/
