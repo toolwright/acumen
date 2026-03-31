@@ -20,10 +20,10 @@ import sys, json
 sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/lib')
 from pathlib import Path
 from store import resolve_scope_path, read_observations
-from cluster import cluster_failures
-from propose import generate_proposals
+from cluster import cluster_failures, extract_conventions
+from propose import generate_proposals, generate_convention_proposals
 from apply import read_rules, save_rules
-from measure import measure_effectiveness as measure_rule, save_effectiveness
+from measure import measure_effectiveness as measure_rule, measure_convention_adherence, save_effectiveness
 from propose import AcumenRule
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -38,7 +38,10 @@ if not observations:
 # 1. Cluster failures
 clusters = cluster_failures(observations)
 
-# 2. Generate proposals from clusters
+# 2. Extract conventions
+conventions = extract_conventions(observations)
+
+# 3. Generate proposals from clusters + conventions
 existing_rules = read_rules(scope)
 existing = []
 for r in existing_rules:
@@ -48,14 +51,17 @@ for r in existing_rules:
         pass
 
 proposals, conflicts = generate_proposals(clusters, existing)
+conv_proposals, conv_conflicts = generate_convention_proposals(conventions, existing)
 
-# 3. Save new proposals to rules.json
-if proposals:
-    for p in proposals:
+# 4. Save new proposals to rules.json
+all_proposals = proposals + conv_proposals
+all_conflicts = conflicts + conv_conflicts
+if all_proposals:
+    for p in all_proposals:
         existing_rules.append(asdict(p))
     save_rules(scope, existing_rules)
 
-# 4. Measure effectiveness of applied rules
+# 5. Measure effectiveness of applied rules
 applied = [r for r in existing_rules if r.get('status') == 'applied']
 eff_records = []
 if applied:
@@ -64,14 +70,19 @@ if applied:
         applied_at = r.get('applied', '')
         if not applied_at:
             continue
-        before = [o for o in all_obs if o.get('timestamp', '') < applied_at]
-        after = [o for o in all_obs if o.get('timestamp', '') >= applied_at]
         try:
             applied_dt = datetime.fromisoformat(applied_at.replace('Z', '+00:00'))
-            days = (datetime.now(timezone.utc) - applied_dt).days
+            days_since = (datetime.now(timezone.utc) - applied_dt).days
         except (ValueError, TypeError):
-            days = 0
-        eff_records.append(measure_rule(r, before, after, days))
+            days_since = 0
+
+        if r.get('type') == 'convention':
+            after = [o for o in all_obs if o.get('timestamp', '') >= applied_at]
+            eff_records.append(measure_convention_adherence(r, after, days_since))
+        else:
+            before = [o for o in all_obs if o.get('timestamp', '') < applied_at]
+            after = [o for o in all_obs if o.get('timestamp', '') >= applied_at]
+            eff_records.append(measure_rule(r, before, after, days_since))
     if eff_records:
         save_effectiveness(scope, eff_records)
 
@@ -80,8 +91,9 @@ summary = {
     'observations': len(observations),
     'corruption_count': corruption_count,
     'clusters_found': len(clusters),
-    'proposals_generated': len(proposals),
-    'conflicts_blocked': len(conflicts),
+    'conventions_found': len(conventions),
+    'proposals_generated': len(all_proposals),
+    'conflicts_blocked': len(all_conflicts),
     'applied_rules': len(applied) if applied else 0,
 }
 print(json.dumps(summary, indent=2))
