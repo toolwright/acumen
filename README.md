@@ -18,29 +18,29 @@ After two weeks with Acumen:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                       ACUMEN REPORT                           │
-│                       my-project (14 days)                    │
-│                                                               │
-│  YOUR AGENT IS SPECIALIZING                                   │
-│                                                               │
-│  Failures reduced:                                            │
-│    "python command_not_found"                                 │
-│      Before: 9.4 per 100 python calls                         │
+│                       ACUMEN REPORT                          │
+│                       my-project (14 days)                   │
+│                                                              │
+│  YOUR AGENT IS SPECIALIZING                                  │
+│                                                              │
+│  Failures reduced:                                           │
+│    "python command_not_found"                                │
+│      Before: 9.4 per 100 python calls                        │
 │      After:  0.4 per 100 python calls    ↓ 96%               │
-│      Rule: "Use python3 instead of python"                    │
-│                                                               │
-│    "Edit file_not_found"                                      │
-│      Before: 4.6 per 100 Edit calls                           │
+│      Rule: "Use python3 instead of python"                   │
+│                                                              │
+│    "Edit file_not_found"                                     │
+│      Before: 4.6 per 100 Edit calls                          │
 │      After:  1.6 per 100 Edit calls      ↓ 65%               │
-│      Rule: "Verify file exists before Edit tool"              │
-│                                                               │
-│  Conventions learned:                                         │
-│    test_command: "pytest -v"          adherence: 100%         │
-│    file_naming: "snake_case"          adherence: 94%          │
-│    test_placement: "tests/ mirror"    adherence: 89%          │
-│                                                               │
+│      Rule: "Verify file exists before Edit tool"             │
+│                                                              │
+│  Conventions learned:                                        │
+│    test_command: "pytest -v"          adherence: 100%        │
+│    file_naming: "snake_case"          adherence: 94%         │
+│    test_placement: "tests/ mirror"    adherence: 89%         │
+│                                                              │
 │  5 rules active │ 4 approved, 1 pending │ 0 reverted         │
-│                                                               │
+│                                                              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
