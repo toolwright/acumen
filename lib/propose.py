@@ -1,4 +1,4 @@
-"""Proposal generation: turns FailureClusters into AcumenRule proposals.
+"""Proposal generation: turns clusters and conventions into AcumenRule proposals.
 
 Handles confidence scoring, contradiction detection, and quality guardrails.
 Stdlib only.
@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from lib.cluster import FailureCluster
+from lib.cluster import ConventionCandidate, FailureCluster
 
 MIN_CONFIDENCE = 0.4
 MAX_PENDING = 5
@@ -117,6 +117,96 @@ def generate_proposals(
             supporting_observations=cluster.observation_count,
             supporting_sessions=cluster.session_count,
             supporting_days=cluster.day_count,
+            confidence=confidence,
+            scope="project",
+            status="proposed",
+            created=now,
+            decided=None,
+            applied=None,
+            reverted=None,
+            human_edited=False,
+        )
+
+        if _has_contradiction(rule, existing_rules):
+            conflicts.append(rule)
+        else:
+            proposals.append(rule)
+            if _count_pending(existing_rules) + len(proposals) >= MAX_PENDING:
+                break
+
+    return proposals, conflicts
+
+
+# --- Convention proposals ---
+
+_CONVENTION_ACTION_TEMPLATES = {
+    "test_command": "Use {value} for running tests in this project",
+    "file_naming": "New Python files use {value} naming",
+    "test_placement": "Test files go in {value} directory pattern",
+}
+
+_PLACEMENT_LABELS = {
+    "tests_root": "tests/ at project root",
+    "tests_mirror": "tests/ mirroring source structure",
+    "colocated": "the same directory as source files",
+    "integration_dir": "integration/ directory",
+}
+
+
+def _build_convention_action(candidate: ConventionCandidate) -> str:
+    template = _CONVENTION_ACTION_TEMPLATES.get(candidate.pattern_kind, "")
+    value = candidate.dominant_value
+    if candidate.pattern_kind == "test_placement":
+        value = _PLACEMENT_LABELS.get(value, value)
+    return template.format(value=value)
+
+
+def _build_convention_evidence(candidate: ConventionCandidate) -> str:
+    return (f"{candidate.observation_count} observations across "
+            f"{candidate.session_count} sessions, "
+            f"{candidate.consistency_pct:.0f}% consistent")
+
+
+def _compute_convention_confidence(candidate: ConventionCandidate) -> float:
+    base = _compute_confidence(
+        candidate.observation_count, candidate.session_count, candidate.day_count)
+    consistency_bonus = (candidate.consistency_pct / 100) * 0.1
+    return min(base + consistency_bonus, 1.0)
+
+
+def generate_convention_proposals(
+    candidates: list[ConventionCandidate],
+    existing_rules: list[AcumenRule],
+) -> tuple[list[AcumenRule], list[AcumenRule]]:
+    """Generate AcumenRule proposals from convention candidates.
+
+    Returns (proposals, conflicts).
+    """
+    if _count_pending(existing_rules) >= MAX_PENDING:
+        return [], []
+
+    proposals = []
+    conflicts = []
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    for candidate in candidates:
+        confidence = _compute_convention_confidence(candidate)
+        if confidence < MIN_CONFIDENCE:
+            continue
+
+        rule = AcumenRule(
+            id=str(uuid.uuid4()),
+            type="convention",
+            pattern_kind=candidate.pattern_kind,
+            target_tool=None,
+            trigger_class=None,
+            pattern=f"{candidate.pattern_kind}: {candidate.dominant_value} "
+                    f"({candidate.consistency_pct:.0f}%)",
+            action=_build_convention_action(candidate),
+            evidence_summary=_build_convention_evidence(candidate),
+            supporting_observations=candidate.observation_count,
+            supporting_sessions=candidate.session_count,
+            supporting_days=candidate.day_count,
             confidence=confidence,
             scope="project",
             status="proposed",
