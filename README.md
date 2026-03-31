@@ -79,68 +79,20 @@ The hook reads raw data transiently to classify it, then discards the raw data �
 - Never modifies CLAUDE.md
 - Zero network calls, zero telemetry
 
-## Research Grounding
+## Why This Works
 
-Every architectural decision in Acumen maps to published research on self-improving AI agents. This isn't theoretical — these are proven techniques with demonstrated results.
+Acumen is grounded in a key finding from 2025-2026 AI research: **improving the scaffold around a frozen model achieves 30-250% performance improvement without changing model weights.** Systems like the [Darwin Godel Machine](https://arxiv.org/abs/2505.22954) (+30 points on SWE-bench), [Live-SWE-agent](https://arxiv.org/abs/2511.13646) (+22.6% at $0 cost), and [Karpathy's AutoResearch](https://github.com/karpathy/autoresearch) (11% speedup overnight) all proved this independently.
 
-### Foundation: The Scaffold Is the Lever
+Acumen applies the same principle to your specific project: your agent's rules, conventions, and operational knowledge are the scaffold. Improving them makes your agent better without waiting for model upgrades.
 
-The core thesis: **improving the scaffold around a frozen model achieves 30-250% performance improvement without changing model weights.** Every major system in 2025-2026 independently proved this:
+**Key design decisions from the research:**
 
-| System | What It Improved | Result | Source |
-|--------|-----------------|--------|--------|
-| Darwin Godel Machine | Agent scaffold code | +30 points on SWE-bench | [Sakana AI, 2025](https://arxiv.org/abs/2505.22954) |
-| Live-SWE-agent | Runtime tools | +22.6%, $0 offline cost | [arXiv:2511.13646](https://arxiv.org/abs/2511.13646) |
-| AutoResearch | Training code (one file) | 11% speedup overnight | [Karpathy, 2026](https://github.com/karpathy/autoresearch) |
-| MiniMax M2.7 | Scaffold + sampling params | 30% improvement | [MiniMax, 2026](https://www.minimax.io/news/minimax-m27-en) |
-| ARTEMIS | Prompts + tools + params | 10.1% improvement | [arXiv:2512.09108](https://arxiv.org/abs/2512.09108) |
-| OpenSpace | Skill library | 4.2x on professional tasks | [HKUDS, 2026](https://github.com/HKUDS/OpenSpace) |
-| DGM-Hyperagents | The improvement process itself | Cross-domain transfer | [arXiv:2603.19461](https://arxiv.org/abs/2603.19461) |
-
-Acumen improves your agent's scaffold: its rules, conventions, and operational knowledge. Same principle, applied to your specific project.
-
-### Current Features — Research Backing
-
-| What Acumen Does | Research Source | Key Finding |
+| Decision | Why | Source |
 |---|---|---|
-| **Observe tool outcomes** | [ExpeL](https://arxiv.org/abs/2308.10144) (AAAI 2024 Oral) | Extracting natural language insights from experience works without fine-tuning. API-only models can self-improve through in-context learning. |
-| **Learn from failures** | [MiniMax M2.7](https://www.minimax.io/news/minimax-m27-en), [DGM](https://arxiv.org/abs/2505.22954) | Failure trajectory analysis is the primary improvement signal. M2.7's biggest gains came from analyzing WHY things failed. |
-| **Learn from successes** | [ExpeL](https://arxiv.org/abs/2308.10144) | Learning from both success AND failure produces dramatically better agents than failure alone. Success patterns encode conventions. |
-| **Classify, don't capture** | [DGM safety research](https://arxiv.org/abs/2505.22954) | Self-improving systems encounter sensitive data. The DGM paper documented agents gaming evaluations and accessing unintended data. Minimal capture is a security requirement. |
-| **Require approval for changes** | [DGM](https://arxiv.org/abs/2505.22954) | Self-improving agents WILL hack their reward functions. The DGM paper explicitly documented this: agents fabricated tool logs and tried to bypass safety checks. Human-in-the-loop is non-negotiable. |
-| **Measure with verifiable signals** | [Absolute Zero Reasoner](https://arxiv.org/abs/2505.03335) (NeurIPS 2025 Spotlight) | Code execution as ground truth beats LLM self-evaluation. Verifiable rewards eliminate reward hacking. Acumen uses tool exit codes and error rates, not LLM judgment. |
-| **Structured contradiction detection** | [ARTEMIS](https://arxiv.org/abs/2512.09108) | Joint optimization of multiple components requires conflict awareness. Optimizing prompts + tools + params together outperforms any single component. |
-| **Lightweight reflection** | [Live-SWE-agent](https://arxiv.org/abs/2511.13646) | A single reflection prompt ("would a tool help?") is enough to drive real improvement. Complex meta-learning is unnecessary. 79.2% on SWE-bench with zero offline cost. |
-| **Traceable experiment history** | [AutoResearch](https://github.com/karpathy/autoresearch) | Git-tracked experiment logs: every change is a commit, every improvement is traceable and reversible. Radical simplicity (one file, one metric) outperforms complex setups. |
-
-### Planned Features — Research Backing
-
-| Planned Feature | Phase | Research Source | What the Research Proved |
-|---|---|---|---|
-| **Before/after baseline comparison** | 2 | [AZR](https://arxiv.org/abs/2505.03335) | Verifiable environment signals (code execution equality) are the gold standard for evaluating improvements. Binary pass/fail eliminates subjective judgment. |
-| **Code-structure convention learning** | 2 | [SkillWeaver](https://arxiv.org/abs/2504.07079) | Agents can extract transferable skills/patterns from observed behavior. SkillWeaver achieved 31.8% improvement on WebArena. Skills from strong agents transfer to weak agents (+54.3%). |
-| **Diverse improvement archive** | 3 | [DGM](https://arxiv.org/abs/2505.22954), [DGM-Hyperagents](https://arxiv.org/abs/2603.19461) | Maintaining a diverse population of solutions (not just the "best" one) enables stepping-stone discoveries and avoids local optima. Greedy hillclimbing consistently underperforms archive-based search. |
-| **Skill synthesis from workflows** | 3 | [SkillWeaver](https://arxiv.org/abs/2504.07079), [Voyager](https://arxiv.org/abs/2305.16291), [OpenSpace](https://github.com/HKUDS/OpenSpace) | Ever-growing skill libraries are the foundation of self-improving agents. Voyager's skill library pattern has become foundational — nearly every modern self-improving system uses it. |
-| **Meta-improvement** | 3 | [DGM-Hyperagents](https://arxiv.org/abs/2603.19461) | The improvement process itself can be made editable. Hyperagents improved not just task performance but the mechanism that generates improvements. Meta-level gains transfer across domains and compound over time. |
-| **Automatic difficulty calibration** | 3+ | [AZR](https://arxiv.org/abs/2505.03335) | The proposer-solver loop naturally generates tasks at the frontier of the solver's ability. Acumen can weight insights by how "at the frontier" they are — patterns the agent sometimes gets right and sometimes doesn't. |
-| **Multi-agent support** | 4 | [Self-Evolving Agents Survey](https://arxiv.org/abs/2507.21046) | The WHAT-WHEN-HOW taxonomy applies to any agent: what evolves (rules, skills, tools), when (inter-session), how (reward-based from verifiable signals). The abstraction is domain-agnostic. |
-| **Cross-domain transfer** | 4+ | [DGM-Hyperagents](https://arxiv.org/abs/2603.19461) | Meta-improvements transfer across domains (coding → paper review → robotics → math). An improvement engine trained on coding agents could improve agents in any domain. |
-| **Memory consolidation** | 3+ | [Anthropic Auto-Dream](https://claudefa.st/blog/guide/mechanics/auto-dream), [Sleep-time Compute](https://arxiv.org/abs/2504.13171) | Background computation during idle time pre-organizes information, reducing test-time compute by ~5x. Memory hygiene (pruning stale/contradictory knowledge) is a prerequisite for effective self-improvement. |
-| **Population-based exploration** | Future | [ERL-Re2](https://arxiv.org/abs/2210.17375), [DERL](https://arxiv.org/abs/2512.13399) | Evolutionary + reinforcement learning hybrid search maintains population diversity while exploiting gradient-based optimization. Population diversity is load-bearing. |
-| **Elo tournament for ranking** | Future | [Google AI Co-Scientist](https://arxiv.org/abs/2502.18864) | Elo-based pairwise comparison scales hypothesis ranking without requiring absolute quality scores. Simulated debates between candidates surface quality differences. |
-
-### The Gap Nobody Fills
-
-The market has observability (Braintrust, Arize), memory (Mem0), and evaluation (Braintrust, Maxim) as separate products. **Nobody closes the loop:** observe → learn → propose → approve → apply → measure. The companies that observe don't improve. The coding agents that execute don't learn.
-
-Acumen closes the loop.
-
-### Further Reading
-
-- [DGM Paper](https://arxiv.org/abs/2505.22954) — The foundational paper on self-improving coding agents
-- [ExpeL Paper](https://arxiv.org/abs/2308.10144) — Learning from experience without fine-tuning
-- [AZR Paper](https://arxiv.org/abs/2505.03335) — Zero-data self-improvement via verifiable rewards
-- [Self-Evolving Agents Survey](https://arxiv.org/abs/2507.21046) — Comprehensive taxonomy of the field
+| Learn from successes AND failures | Success patterns encode conventions. Failure-only learning misses half the signal. | [ExpeL](https://arxiv.org/abs/2308.10144) (AAAI 2024) |
+| Classify, don't capture | Self-improving systems encounter sensitive data. Minimal capture is a security requirement. | [DGM](https://arxiv.org/abs/2505.22954) |
+| Require approval for all changes | Self-improving agents will hack their reward functions. Human-in-the-loop is non-negotiable. | [DGM](https://arxiv.org/abs/2505.22954) |
+| Measure with verifiable signals | Tool exit codes and error rates beat LLM self-evaluation. Verifiable rewards eliminate gaming. | [AZR](https://arxiv.org/abs/2505.03335) (NeurIPS 2025) |
 
 ## Architecture
 

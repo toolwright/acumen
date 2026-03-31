@@ -19,20 +19,22 @@ fi
 count=$(echo "$count" | tr -d ' ')
 [ "$count" -ge "$threshold" ] 2>/dev/null && touch "$flag"
 
-# Retire ineffective rules (fail-open)
+# Retire harmful rules via v2.1 effectiveness data (fail-open)
 plugin_root="${CLAUDE_PLUGIN_ROOT:-}"
-if [ -n "$plugin_root" ] && [ -f "$plugin_root/lib/improver.py" ]; then
+if [ -n "$plugin_root" ] && [ -f "$plugin_root/lib/measure.py" ]; then
   python3 -c "
-import sys, json; sys.path.insert(0, '$plugin_root/lib')
+import sys; sys.path.insert(0, '$plugin_root/lib')
 try:
     from pathlib import Path
     from store import resolve_scope_path
-    from improver import read_proposals, retire_ineffective_proposals
+    from measure import read_effectiveness
+    from apply import read_rules, save_rules, revert_rule
     scope = resolve_scope_path('project')
-    proposals = read_proposals(scope)
-    retired = retire_ineffective_proposals(proposals, Path('.'))
-    if retired:
-        (scope / 'proposals.json').write_text(json.dumps(proposals, indent=2))
+    records = read_effectiveness(scope)
+    harmful = [r for r in records if r.verdict == 'harmful']
+    if harmful:
+        for h in harmful:
+            revert_rule(scope, h.rule_id, Path('.'))
 except Exception:
     pass
 " 2>/dev/null || true
