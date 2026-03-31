@@ -154,3 +154,78 @@ def classify_error_class(error_type: str | None, error_message: str | None) -> s
         if pattern.search(error_message):
             return class_name
     return None
+
+
+if __name__ == "__main__":
+    # Hook entry point: reads raw event JSON from stdin, derives Tier 0.5
+    # fields, discards raw data, writes per-session JSONL observation.
+    import json
+    import sys
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from store import append_observation, read_last_observation, update_index
+
+    raw = sys.stdin.read().strip()
+    if not raw:
+        sys.exit(0)
+    try:
+        event = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        sys.exit(0)
+
+    tool_name = event.get("tool_name", "")
+    if not tool_name:
+        sys.exit(0)
+
+    session_id = event.get("session_id") or "unknown"
+    hook_event = event.get("hook_event_name", "")
+    error_msg = event.get("error", "")
+
+    if hook_event == "PostToolUseFailure" or error_msg:
+        outcome = "error"
+        error_type = "tool_failure" if hook_event == "PostToolUseFailure" else "tool_error"
+    else:
+        outcome = "success"
+        error_type = None
+
+    # Extract raw values for classification only — NOT persisted
+    tool_input = event.get("tool_input") or {}
+    command = tool_input.get("command") if tool_name == "Bash" else None
+    file_path = tool_input.get("file_path")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    project_root = Path.cwd()
+    scope_path = Path(".acumen")
+
+    obs = {
+        "tool_name": tool_name,
+        "session_id": session_id,
+        "timestamp": timestamp,
+        "outcome": outcome,
+        "error_type": error_type,
+        "command_family": classify_command_family(tool_name, command),
+        "command_signature": classify_command_signature(tool_name, command),
+        "file_basename": classify_file_basename(tool_name, file_path),
+        "path_pattern": classify_path_pattern(tool_name, file_path),
+        "write_kind": classify_write_kind(tool_name, file_path),
+        "environment_tag": classify_environment_tag(project_root),
+        "error_class": classify_error_class(error_type, error_msg),
+        "burst_count": 1,
+    }
+
+    # Burst tracking: check last observation in this session
+    last = read_last_observation(scope_path, session_id)
+    if last and last.get("tool_name") == tool_name:
+        last_ts = last.get("timestamp", "")
+        if last_ts:
+            try:
+                fmt = "%Y-%m-%dT%H:%M:%SZ"
+                curr = datetime.strptime(timestamp, fmt).replace(tzinfo=timezone.utc)
+                prev = datetime.strptime(last_ts, fmt).replace(tzinfo=timezone.utc)
+                if (curr - prev).total_seconds() < 60:
+                    obs["burst_count"] = last.get("burst_count", 1) + 1
+            except (ValueError, TypeError):
+                pass
+
+    append_observation(scope_path, session_id, obs)
+    update_index(scope_path, session_id, timestamp)

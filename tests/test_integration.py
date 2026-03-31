@@ -126,7 +126,7 @@ def test_full_pipeline_observe_score_rank(tmp_path):
     _make_observations(tmp_path, observations)
 
     # Read back observations through store
-    read_obs = read_observations(tmp_path)
+    read_obs, _ = read_observations(tmp_path)
     assert len(read_obs) == 18
 
     # Simulate reflector output
@@ -168,7 +168,7 @@ def test_full_pipeline_observe_score_rank(tmp_path):
 
 def test_pipeline_with_no_observations(tmp_path):
     """Pipeline handles empty observation directory gracefully."""
-    read_obs = read_observations(tmp_path)
+    read_obs, _ = read_observations(tmp_path)
     assert read_obs == []
 
     insight = {
@@ -277,7 +277,7 @@ def test_full_pipeline_with_fixture_data(tmp_path):
     _make_observations(tmp_path, obs)
 
     # 1. Read via store
-    read_obs = read_observations(tmp_path)
+    read_obs, _ = read_observations(tmp_path)
     assert len(read_obs) == 20
 
     # 2. Simulate reflector insights
@@ -387,7 +387,7 @@ def test_full_pipeline_observe_to_apply(tmp_path):
     """End-to-end: observations -> score -> insights -> proposals -> apply."""
     observations = _sample_observations(n_success=10, n_error=8)
     _make_observations(tmp_path, observations)
-    read_obs = read_observations(tmp_path)
+    read_obs, _ = read_observations(tmp_path)
 
     # Simulate reflector output
     insights = [
@@ -449,7 +449,7 @@ def test_pipeline_observe_hook_to_format(tmp_path):
 
     # Read from the .acumen directory that observe.sh created
     scope = tmp_path / ".acumen"
-    obs = read_observations(scope)
+    obs, _ = read_observations(scope)
     assert len(obs) == 5
 
     # Score a synthetic insight against these observations
