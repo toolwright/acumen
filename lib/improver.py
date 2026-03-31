@@ -1,4 +1,11 @@
-"""Generate, store, and apply improvement proposals. Stdlib only."""
+"""DEPRECATED (v0.3 pipeline) — replaced by v2.1 modules:
+  - propose.py (proposal generation from failure clusters)
+  - apply.py (rule application and revert)
+  - measure.py (effectiveness tracking)
+
+Still imported by session hooks (session-start.sh, session-end.sh) and
+commands/effectiveness.md. Do not delete until those are migrated to v2.1.
+"""
 
 from __future__ import annotations
 

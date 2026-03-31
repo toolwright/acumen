@@ -209,7 +209,7 @@ class TestSessionStart:
         assert result.stdout.strip() == ""
 
     def test_flag_present_outputs_context(self, tmp_path):
-        """Flag file exists -> outputs context with reflect + auto-apply instructions."""
+        """Flag file exists -> outputs context with reflect + review instructions."""
         flag = tmp_path / ".acumen" / "should-reflect"
         flag.parent.mkdir(parents=True, exist_ok=True)
         flag.touch()
@@ -217,7 +217,6 @@ class TestSessionStart:
         result = run_hook(SESSION_START, tmp_path)
         assert result.returncode == 0
         assert "/acumen-reflect" in result.stdout
-        assert "auto_apply_proposals" in result.stdout
         assert "/acumen-review" in result.stdout
 
     def test_flag_removed_after_read(self, tmp_path):

@@ -12,27 +12,7 @@ if [ -f "$flag" ]; then
   rm -f "$flag"
   cat <<'REFLECT_EOF'
 Acumen has collected enough new observations since your last reflection.
-Please do the following:
-1. Run /acumen-reflect to extract insights and generate improvement proposals.
-2. Auto-apply all proposals by running:
-   ```python3
-   python3 -c "
-   import sys, json; sys.path.insert(0, '${CLAUDE_PLUGIN_ROOT}/lib')
-   from store import resolve_scope_path
-   from improver import read_proposals, auto_apply_proposals, expire_stale_proposals
-   from pathlib import Path
-   scope = resolve_scope_path('project')
-   proposals = read_proposals(scope)
-   expire_stale_proposals(proposals)
-   applied = auto_apply_proposals(Path('.'), proposals)
-   (scope / 'proposals.json').write_text(json.dumps(proposals, indent=2))
-   for a in applied:
-       print(f'  [RULE] {a[\"description\"]}')
-   if not applied: print('  No new proposals to apply.')
-   "
-   ```
-3. Notify the user what was applied. Example:
-   "Acumen auto-applied N rules. Run /acumen-review to see details or revert any."
+Run /acumen-reflect now, then run /acumen-review to approve or reject proposals.
 REFLECT_EOF
   exit 0
 fi

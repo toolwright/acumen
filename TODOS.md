@@ -3,13 +3,23 @@
 Items below are explicitly deferred but planned. Each includes the research that motivates it and enough context to implement without re-doing the research.
 
 **Shipped:**
-- Phase 1 (observe + learn) -- complete
-- Phase 2 (improve + auto-apply + review/revert + effectiveness measurement + global promotion) -- complete
-- Quality pass: all-rules architecture, jq-free observation, insight validation, proposal auto-expiry
+- v0.1-v0.3 (observe + learn + improve + auto-apply + review/revert + effectiveness + global promotion) -- complete
+- v2.1 spec: "Turn your generalist AI into a specialist" -- approved, building Phase 1A
+- Phase 1A Steps 1-3: classify.py (Tier 0.5), observe.sh (refactored), store.py (per-session JSONL) -- complete
 
 ---
 
-## v0.2 Priorities (immediate next steps)
+## KNOWN BUGS (fix before Phase 1B)
+
+### ~~BUG-001: write_kind hardcoded~~ FIXED
+**Fixed in:** Phase 1A Step 10. `classify_write_kind(tool_name, file_path)` now called correctly.
+
+### ~~BUG-002: Corruption skip counter not tracked~~ FIXED
+**Fixed in:** Phase 1A Step 9. `read_observations()` returns `(observations, error_count)`. Count surfaced in `/acumen-status`.
+
+---
+
+## Phase 1A Remaining Steps (in progress)
 
 ### TODO-001: Plugin Registry Submission
 **What:** Submit Acumen to the Claude Code community plugin marketplace and set up self-hosted marketplace as fallback.

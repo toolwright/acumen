@@ -1,4 +1,9 @@
-"""Format observation/insight data for CLI display. Stdlib only."""
+"""Format observation/insight data for CLI display. Stdlib only.
+
+NOTE: format_status() and format_review() are v0.3 legacy — replaced by
+inline formatting in commands/status.md and commands/review.md respectively.
+format_insights() is still used by commands/insights.md.
+"""
 
 from collections import Counter
 from pathlib import Path
