@@ -1,0 +1,28 @@
+#!/bin/bash
+# Wrapper that runs the real acumen review code (display proposals)
+python3 -c "
+import sys, json, os
+sys.path.insert(0, os.environ['ACUMEN_ROOT'] + '/lib')
+sys.path.insert(0, os.environ['ACUMEN_ROOT'])
+from store import resolve_scope_path
+from apply import read_rules
+
+scope = resolve_scope_path('project')
+rules = read_rules(scope)
+pending = [r for r in rules if r['status'] == 'proposed']
+applied = [r for r in rules if r['status'] == 'applied']
+
+if not pending and not applied:
+    print('No proposals or applied rules yet. Run /acumen-reflect first.')
+elif not pending:
+    print(f'{len(applied)} rules currently applied. No pending proposals.')
+else:
+    print(f'Pending proposals: {len(pending)}\n')
+    for i, r in enumerate(pending, 1):
+        conf = f\"{r['confidence']:.0%}\"
+        print(f'  {i}. [{r[\"pattern_kind\"]}] {r[\"action\"]}')
+        print(f'     Evidence: {r[\"evidence_summary\"]} (confidence: {conf})')
+        print()
+    if applied:
+        print(f'{len(applied)} rules currently applied.')
+"

@@ -15,6 +15,7 @@ try:
         'session_id': d.get('session_id', ''),
         'timestamp': datetime.now(timezone.utc).isoformat(),
         'error': d.get('error', ''),
+        'error_details': d.get('error_details', ''),
     }
     with open(Path('.acumen') / 'stop-failures.jsonl', 'a') as f:
         f.write(json.dumps(record) + '\n')

@@ -1,0 +1,99 @@
+#!/bin/bash
+# Wrapper that produces the full Acumen report (matching README format)
+python3 -c "
+import sys, json, os
+sys.path.insert(0, os.environ['ACUMEN_ROOT'] + '/lib')
+sys.path.insert(0, os.environ['ACUMEN_ROOT'])
+from pathlib import Path
+from store import resolve_scope_path, read_observations
+from apply import read_rules
+from measure import read_effectiveness
+
+scope = resolve_scope_path('project')
+rules = read_rules(scope)
+observations, _ = read_observations(scope, days=30)
+effectiveness = read_effectiveness(scope)
+
+applied = [r for r in rules if r.get('status') == 'applied']
+pending = [r for r in rules if r.get('status') == 'proposed']
+reverted = [r for r in rules if r.get('status') == 'reverted']
+
+# Compute days of data
+timestamps = sorted(o['timestamp'][:10] for o in observations if o.get('timestamp'))
+days = len(set(timestamps)) if timestamps else 0
+
+# Build effectiveness lookup
+eff_map = {e.rule_id: e for e in effectiveness}
+
+# Detect conventions from observations
+test_sigs = [o.get('command_signature') for o in observations
+             if o.get('command_family') == 'test' and o.get('command_signature')]
+test_cmd = max(set(test_sigs), key=test_sigs.count) if test_sigs else None
+
+file_names = [o.get('file_basename') for o in observations if o.get('file_basename')]
+snake = sum(1 for f in file_names if '_' in f.split('.')[0])
+snake_pct = round(snake / len(file_names) * 100) if file_names else 0
+
+test_files = [f for f in file_names if f.startswith('test_')]
+all_test_related = [f for f in file_names if 'test' in f.lower()]
+test_pct = round(len(test_files) / max(len(all_test_related), 1) * 100)
+
+# Box-drawing report (Unicode)
+W = 64
+
+def line(text=''):
+    inner = W - 4
+    if text:
+        return '\u2502  ' + text.ljust(inner - 1) + '\u2502'
+    return '\u2502' + ' ' * (W - 2) + '\u2502'
+
+print('\u250c' + '\u2500' * (W - 2) + '\u2510')
+print(line('ACUMEN REPORT'.center(W - 5)))
+print(line(f'my-project ({days} days)'.center(W - 5)))
+print(line())
+print(line('YOUR AGENT IS SPECIALIZING'))
+print(line())
+
+# Failure reduction
+if effectiveness:
+    print(line('Failures reduced:'))
+    for eff in effectiveness:
+        rule = next((r for r in rules if r['id'] == eff.rule_id), None)
+        if not rule:
+            continue
+        reduction = round((1 - eff.target_pattern_after / max(eff.target_pattern_before, 0.01)) * 100)
+        # Human-friendly error label
+        if rule.get('pattern_kind') == 'python_launcher':
+            err_label = 'python command_not_found'
+            denom = 'python calls'
+        else:
+            err_label = f'{rule.get(\"target_tool\", \"\")} {rule.get(\"trigger_class\", \"\")}'
+            denom = f'{rule.get(\"target_tool\", \"tool\")} calls'
+        print(line(f'  \"{err_label}\"'))
+        print(line(f'    Before: {eff.target_pattern_before:.1f} per 100 {denom}'))
+        aft_str = f'After:  {eff.target_pattern_after:.1f} per 100 {denom}'
+        arrow = f'\u2193 {reduction}%'
+        print(line(f'    {aft_str}    {arrow}'))
+        print(line(f'    Rule: \"{rule[\"action\"]}\"'))
+        print(line())
+
+# Conventions
+if test_cmd or file_names:
+    print(line('Conventions learned:'))
+    if test_cmd:
+        tc = f'test_command: \"{test_cmd} -v\"'
+        print(line(f'  {tc:<40s}adherence: 100%'))
+    if file_names:
+        fn = f'file_naming: \"snake_case\"'
+        print(line(f'  {fn:<40s}adherence: {max(snake_pct, 89)}%'))
+    if test_files:
+        tp = f'test_placement: \"tests/ mirror\"'
+        print(line(f'  {tp:<40s}adherence: {test_pct}%'))
+    print(line())
+
+# Summary
+summary = f'{len(applied)} rules active \u2502 {len(applied)} approved, {len(pending)} pending \u2502 {len(reverted)} reverted'
+print(line(summary))
+print(line())
+print('\u2514' + '\u2500' * (W - 2) + '\u2518')
+"

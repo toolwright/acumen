@@ -1,0 +1,25 @@
+#!/bin/bash
+# Wrapper that runs the real acumen apply code (approve a proposal)
+NUM="${1:?Usage: acumen-approve <number>}"
+python3 -c "
+import sys, json, os
+sys.path.insert(0, os.environ['ACUMEN_ROOT'] + '/lib')
+sys.path.insert(0, os.environ['ACUMEN_ROOT'])
+from pathlib import Path
+from store import resolve_scope_path
+from apply import read_rules, apply_rule
+
+scope = resolve_scope_path('project')
+rules = read_rules(scope)
+pending = [r for r in rules if r['status'] == 'proposed']
+
+idx = int('$NUM') - 1
+if idx < 0 or idx >= len(pending):
+    print(f'Invalid proposal number: $NUM')
+    sys.exit(1)
+
+rule = pending[idx]
+path = apply_rule(scope, rule, Path('.'))
+print(f'Approved: {rule[\"action\"]}')
+print(f'Applied:  {path}')
+" 2>&1

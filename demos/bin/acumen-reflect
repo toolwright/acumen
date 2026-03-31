@@ -1,0 +1,61 @@
+#!/bin/bash
+# Wrapper that runs the real acumen reflection pipeline (cluster + propose)
+python3 -c "
+import sys, json, os
+sys.path.insert(0, os.environ['ACUMEN_ROOT'] + '/lib')
+sys.path.insert(0, os.environ['ACUMEN_ROOT'])
+from pathlib import Path
+from dataclasses import asdict
+from store import resolve_scope_path, read_observations
+from cluster import cluster_failures
+from propose import generate_proposals, AcumenRule
+from apply import read_rules, save_rules
+
+scope = resolve_scope_path('project')
+
+# 1. Read observations
+observations, _ = read_observations(scope)
+print(f'Analyzing observations...')
+print(f'  Reading {len(observations)} events from {scope / \"observations\"}\n')
+
+# 2. Cluster failures
+clusters = cluster_failures(observations)
+print(f'Clustering failures...')
+if clusters:
+    print(f'  Found {len(clusters)} cluster(s):')
+    for c in clusters:
+        fam = f' ({c.sample_command_families[0]})' if c.sample_command_families else ''
+        print(f'    - {c.tool_name}/{c.error_class}{fam}: {c.observation_count} errors across {c.session_count} sessions, {c.day_count} days')
+else:
+    print('  No failure clusters found (need 5+ errors, 3+ sessions, 2+ days)')
+print()
+
+# 3. Generate proposals
+existing = []
+for r in read_rules(scope):
+    try:
+        existing.append(AcumenRule(**r))
+    except TypeError:
+        pass
+
+proposals, conflicts = generate_proposals(clusters, existing)
+print(f'Generating proposals...')
+if proposals:
+    print(f'  {len(proposals)} proposal(s) created:')
+    for i, p in enumerate(proposals, 1):
+        print(f'    {i}. [{p.pattern_kind}] {p.action}')
+        print(f'       Confidence: {p.confidence:.0%} | Evidence: {p.evidence_summary}')
+else:
+    print('  No new proposals (all patterns already covered or below threshold)')
+
+if conflicts:
+    print(f'  {len(conflicts)} blocked by contradiction')
+print()
+
+# 4. Save proposals to rules.json
+if proposals:
+    all_rules = read_rules(scope)
+    all_rules.extend(asdict(p) for p in proposals)
+    save_rules(scope, all_rules)
+    print(f'Saved {len(proposals)} proposals to rules.json')
+"

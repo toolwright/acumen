@@ -28,6 +28,7 @@ _TEST_SIGS = {"pytest", "uv_pytest", "npm_test", "jest", "cargo_test", "go_test"
 _ERROR_PATTERNS = [
     ("command_not_found", re.compile(r"command not found|exit code 127", re.IGNORECASE)),
     ("file_not_found", re.compile(r"no such file|FileNotFoundError|ENOENT", re.IGNORECASE)),
+    ("user_denied", re.compile(r"denied by user|user denied|user rejected|tool use.*denied", re.IGNORECASE)),
     ("permission_denied", re.compile(r"permission denied|EACCES", re.IGNORECASE)),
     ("syntax_error", re.compile(r"SyntaxError|syntax error", re.IGNORECASE)),
     ("timeout", re.compile(r"timed? ?out|TimeoutError", re.IGNORECASE)),
@@ -148,12 +149,14 @@ def classify_environment_tag(project_root: Path) -> str | None:
 
 def classify_error_class(error_type: str | None, error_message: str | None) -> str | None:
     """Normalize error_type + error_message into an error_class tag."""
-    if not error_type or not error_message:
+    if not error_type:
         return None
+    if not error_message:
+        return "unclassified"
     for class_name, pattern in _ERROR_PATTERNS:
         if pattern.search(error_message):
             return class_name
-    return None
+    return "unclassified"
 
 
 if __name__ == "__main__":

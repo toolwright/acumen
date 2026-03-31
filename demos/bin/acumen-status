@@ -1,0 +1,45 @@
+#!/bin/bash
+# Wrapper that runs the real acumen status code
+python3 -c "
+import sys, json, os
+sys.path.insert(0, os.environ['ACUMEN_ROOT'] + '/lib')
+sys.path.insert(0, os.environ['ACUMEN_ROOT'])
+from pathlib import Path
+from store import resolve_scope_path, read_observations
+from apply import read_rules
+from measure import read_effectiveness
+
+scope = resolve_scope_path('project')
+
+observations, corruption_count = read_observations(scope)
+index_path = scope / 'observations' / 'index.json'
+session_count = 0
+if index_path.exists():
+    try:
+        session_count = len(json.loads(index_path.read_text()))
+    except (json.JSONDecodeError, OSError):
+        pass
+
+rules = read_rules(scope)
+active = [r for r in rules if r.get('status') == 'applied']
+pending = [r for r in rules if r.get('status') == 'proposed']
+kinds = sorted({r.get('pattern_kind', 'unknown') for r in active}) if active else []
+
+print('ACUMEN STATUS')
+print()
+print(f'  Observations: {len(observations)} events across {session_count} sessions (Tier 0.5)')
+if corruption_count:
+    print(f'  Data quality: {corruption_count} corrupted line(s) skipped')
+print(f'  Active rules: {len(active)}' + (f' ({\", \".join(kinds)})' if kinds else ''))
+print(f'  Pending proposals: {len(pending)}')
+
+verdicts = read_effectiveness(scope)
+if verdicts:
+    icons = {'effective': '+', 'neutral': '~', 'harmful': '-', 'pending': '?'}
+    print(f'  Effectiveness ({len(verdicts)} measured):')
+    for v in verdicts:
+        icon = icons.get(v.verdict, '?')
+        print(f'    [{icon}] {v.rule_id[:8]}...: {v.verdict} ({v.target_pattern_before:.1f} -> {v.target_pattern_after:.1f} per 100)')
+else:
+    print('  Effectiveness: no measurements yet')
+"

@@ -308,10 +308,32 @@ def test_error_class_no_error():
 
 
 def test_error_class_unknown_error():
-    """Error type present but message doesn't match known classes → None."""
-    assert classify_error_class("tool_failure", "some random error") is None
+    """Error type present but message doesn't match known classes → unclassified."""
+    assert classify_error_class("tool_failure", "some random error") == "unclassified"
+
+
+def test_error_class_no_message():
+    """Error type present but no message → unclassified (not None)."""
+    assert classify_error_class("tool_failure", None) == "unclassified"
+    assert classify_error_class("tool_failure", "") == "unclassified"
 
 
 def test_error_class_exit_code_127():
     """Exit code 127 = command not found."""
     assert classify_error_class("tool_failure", "exit code 127") == "command_not_found"
+
+
+# -- user_denied --
+
+
+def test_error_class_user_denied():
+    """User denial of tool use → user_denied."""
+    assert classify_error_class("tool_failure", "denied by user") == "user_denied"
+    assert classify_error_class("tool_failure", "User denied tool use") == "user_denied"
+    assert classify_error_class("tool_failure", "tool use was denied") == "user_denied"
+
+
+def test_error_class_user_denied_not_filesystem():
+    """Filesystem 'permission denied' should NOT match user_denied."""
+    assert classify_error_class("tool_failure", "Permission denied") == "permission_denied"
+    assert classify_error_class("tool_failure", "EACCES: permission denied") == "permission_denied"

@@ -16,33 +16,7 @@ OBSERVE ──> LEARN ──> PROPOSE ──> [APPROVE] ──> APPLY
 
 After two weeks with Acumen:
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                       ACUMEN REPORT                          │
-│                       my-project (14 days)                   │
-│                                                              │
-│  YOUR AGENT IS SPECIALIZING                                  │
-│                                                              │
-│  Failures reduced:                                           │
-│    "python command_not_found"                                │
-│      Before: 9.4 per 100 python calls                        │
-│      After:  0.4 per 100 python calls    ↓ 96%               │
-│      Rule: "Use python3 instead of python"                   │
-│                                                              │
-│    "Edit file_not_found"                                     │
-│      Before: 4.6 per 100 Edit calls                          │
-│      After:  1.6 per 100 Edit calls      ↓ 65%               │
-│      Rule: "Verify file exists before Edit tool"             │
-│                                                              │
-│  Conventions learned:                                        │
-│    test_command: "pytest -v"          adherence: 100%        │
-│    file_naming: "snake_case"          adherence: 94%         │
-│    test_placement: "tests/ mirror"    adherence: 89%         │
-│                                                              │
-│  5 rules active │ 4 approved, 1 pending │ 0 reverted         │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-```
+![Acumen Report — failure reduction and convention adherence](demos/demo3-report.gif)
 
 ## Installation
 
@@ -62,7 +36,11 @@ No pip, no venv, no config files. Zero external dependencies. The `.acumen/` dir
 
 **Learning (triggered after enough observations):** The reflection engine clusters repeated failures, detects operational conventions from success patterns, and generates structured proposals with cited evidence.
 
+![Observation, reflection, and proposal generation](demos/demo1-observe-reflect.gif)
+
 **Proposals (require your approval):** Every behavioral change needs your explicit approval via `/acumen-review`. Acumen never silently modifies how your agent behaves.
+
+![Review proposals, approve, rule file created](demos/demo2-review-approve.gif)
 
 **Measurement (automatic):** After you approve a rule, Acumen tracks whether the targeted failure class actually decreases, with explicit denominators to prevent false positives.
 
@@ -189,7 +167,7 @@ acumen/
     propose.py             # Proposal generation + contradiction detection
     apply.py               # Rule application + revert
     measure.py             # Effectiveness tracking
-    format.py              # CLI output formatting
+    formatter.py           # CLI output formatting
 ```
 
 **Zero external dependencies.** Python 3.11+ stdlib only. No pip packages, no database, no network calls, no telemetry.
