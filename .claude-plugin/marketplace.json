@@ -1,0 +1,15 @@
+{
+  "name": "acumen",
+  "owner": {
+    "name": "Toolwright",
+    "url": "https://github.com/toolwright/acumen"
+  },
+  "plugins": [
+    {
+      "name": "acumen",
+      "source": "./",
+      "description": "Turn your generalist AI into a specialist in your project. Observes, learns, proposes improvements.",
+      "version": "2.1.0"
+    }
+  ]
+}

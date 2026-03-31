@@ -159,8 +159,6 @@ Acumen closes the loop.
 
 ### Further Reading
 
-- [spec-v2.1.md](spec-v2.1.md) — Full implementation contract
-- [findings.md](findings.md) — Comprehensive research survey (1,000+ lines)
 - [DGM Paper](https://arxiv.org/abs/2505.22954) — The foundational paper on self-improving coding agents
 - [ExpeL Paper](https://arxiv.org/abs/2308.10144) — Learning from experience without fine-tuning
 - [AZR Paper](https://arxiv.org/abs/2505.03335) — Zero-data self-improvement via verifiable rewards

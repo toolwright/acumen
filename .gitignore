@@ -24,3 +24,10 @@ Thumbs.db
 
 # Acumen runtime data (user-generated, not committed)
 .acumen/
+
+# Internal docs (research, strategy, specs — not for public repo)
+findings*.md
+spec*.md
+TODOS.md
+progress.md
+task_plan.md
