@@ -16,7 +16,7 @@ OBSERVE ──> LEARN ──> PROPOSE ──> [APPROVE] ──> APPLY
 
 After two weeks with Acumen:
 
-![Acumen Report — failure reduction and convention adherence](demos/demo3-report.gif)
+![Acumen Report — failure reduction and convention adherence](demos/demo3-report.png)
 
 ## Installation
 
@@ -36,11 +36,11 @@ No pip, no venv, no config files. Zero external dependencies. The `.acumen/` dir
 
 **Learning (triggered after enough observations):** The reflection engine clusters repeated failures, detects operational conventions from success patterns, and generates structured proposals with cited evidence.
 
-![Observation, reflection, and proposal generation](demos/demo1-observe-reflect.gif)
+![Observation, reflection, and proposal generation](demos/demo1-observe-reflect.png)
 
 **Proposals (require your approval):** Every behavioral change needs your explicit approval via `/acumen-review`. Acumen never silently modifies how your agent behaves.
 
-![Review proposals, approve, rule file created](demos/demo2-review-approve.gif)
+![Review proposals, approve, rule file created](demos/demo2-review-approve.png)
 
 **Measurement (automatic):** After you approve a rule, Acumen tracks whether the targeted failure class actually decreases, with explicit denominators to prevent false positives.
 
